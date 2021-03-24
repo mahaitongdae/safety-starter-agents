@@ -271,7 +271,7 @@ def make_plots(all_logdirs, legend=None, xaxis=None, values=None, count=False,
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--logdir', default='data/2021-02-21_Crossroad/', nargs='*')
+    parser.add_argument('logdir', default='data/2021-02-21_Crossroad/', nargs='*')
     parser.add_argument('--legend', '-l', nargs='*')
     parser.add_argument('--xaxis', '-x', default='TotalEnvInteracts')
     parser.add_argument('--value', '-y', default='Performance', nargs='*')
@@ -283,10 +283,13 @@ def main():
     parser.add_argument('--paper', action='store_true')
     parser.add_argument('--hidelegend', '-hl', action='store_true')
     parser.add_argument('--title', type=str, default='Performance')
-    parser.add_argument('--savedir', type=str, default='data/figure')
+    parser.add_argument('--savedir', default=None)
     parser.add_argument('--dont_show', action='store_true')
     parser.add_argument('--clearx', action='store_true')
     args = parser.parse_args()
+    print(args.logdir)
+    if args.savedir is None:
+        args.savedir = os.path.join(args.logdir[0],'figure/')
     """
 
     Args: 

@@ -17,10 +17,14 @@ def placeholder(dim=None):
 def placeholders(*args):
     return [placeholder(dim) for dim in args]
 
-def mlp(x, hidden_sizes=(32,), activation=tf.tanh, output_activation=None):
+def mlp(x, hidden_sizes=(32,), activation=tf.tanh, output_activation=None, output_bias=None):
     for h in hidden_sizes[:-1]:
         x = tf.layers.dense(x, units=h, activation=activation)
-    return tf.layers.dense(x, units=hidden_sizes[-1], activation=output_activation)
+    if output_bias == None:
+        return tf.layers.dense(x, units=hidden_sizes[-1], activation=output_activation)
+    else:
+        return tf.layers.dense(x, units=hidden_sizes[-1], activation=output_activation,
+                               bias_initializer=tf.constant_initializer(output_bias))
 
 def get_vars(scope):
     return [x for x in tf.global_variables() if scope in x.name]
@@ -100,7 +104,7 @@ def mlp_critic(x, a, pi, name, hidden_sizes=(256,256), activation=tf.nn.relu,
     fn_mlp = lambda x : tf.squeeze(mlp(x=x,
                                        hidden_sizes=list(hidden_sizes)+[1],
                                        activation=activation,
-                                       output_activation=None),
+                                       output_activation=output_activation),
                                    axis=1)
     with tf.variable_scope(name):
         critic = fn_mlp(tf.concat([x,a], axis=-1))
@@ -109,6 +113,23 @@ def mlp_critic(x, a, pi, name, hidden_sizes=(256,256), activation=tf.nn.relu,
         critic_pi = fn_mlp(tf.concat([x,pi], axis=-1))
 
     return critic, critic_pi
+
+def mlp_lam(x, a, pi, name, hidden_sizes=(256,256), activation=tf.nn.relu,
+               output_activation=tf.nn.softplus, policy=mlp_gaussian_policy, action_space=None, output_bias=1.):
+
+    fn_mlp = lambda x : tf.squeeze(mlp(x=x,
+                                       hidden_sizes=list(hidden_sizes)+[1],
+                                       activation=activation,
+                                       output_activation=output_activation,
+                                       output_bias=output_bias),
+                                   axis=1)
+    with tf.variable_scope(name):
+        lam = fn_mlp(tf.concat([x,a], axis=-1))
+
+    # with tf.variable_scope(name, reuse=True):
+    #     critic_pi = fn_mlp(tf.concat([x,pi], axis=-1))
+
+    return lam
 
 
 class ReplayBuffer:
@@ -148,14 +169,14 @@ class ReplayBuffer:
 """
 Soft Actor-Critic
 """
-def sac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, ac_kwargs=dict(), seed=0,
+def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kwargs=dict(), seed=0,
         steps_per_epoch=1000, epochs=100, replay_size=int(1e6), gamma=0.99,
         polyak=0.995, lr=1e-4, batch_size=1024, local_start_steps=int(1e3),
         max_ep_len=1000, logger_kwargs=dict(), save_freq=10, local_update_after=int(1e3),
         update_freq=1, render=False, 
         fixed_entropy_bonus=None, entropy_constraint=-1.0,
         fixed_cost_penalty=None, cost_constraint=None, cost_lim=None,
-        reward_scale=1,
+        reward_scale=1, pointwise_multiplier=False
         ):
     """
 
@@ -318,13 +339,18 @@ def sac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, ac_kwargs=dict(), seed
     # Cost penalty
     if use_costs:
         if fixed_cost_penalty is None:
-            with tf.variable_scope('costpen'):
-                soft_beta = tf.get_variable('soft_beta',
-                                             initializer=0.0,
-                                             trainable=True,
-                                             dtype=tf.float32)
-            beta = tf.nn.softplus(soft_beta)
-            log_beta = tf.log(beta)
+            if pointwise_multiplier is False:
+                with tf.variable_scope('costpen'):
+                    soft_beta = tf.get_variable('soft_beta',
+                                                 initializer=0.0,
+                                                 trainable=True,
+                                                 dtype=tf.float32)
+                beta = tf.nn.softplus(soft_beta)
+                log_beta = tf.log(beta)
+            else:
+                with tf.variable_scope('main', reuse=tf.AUTO_REUSE):
+                    lam = lam_fn(x_ph, a_ph, pi, name='lam', **ac_kwargs)
+
         else:
             beta = tf.constant(fixed_cost_penalty)
             log_beta = tf.log(beta)
@@ -337,9 +363,15 @@ def sac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, ac_kwargs=dict(), seed
 
     # Count variables
     if proc_id()==0:
-        var_counts = tuple(count_vars(scope) for scope in 
-                           ['main/pi', 'main/qr1', 'main/qr2', 'main/qc', 'main'])
-        print(('\nNumber of parameters: \t pi: %d, \t qr1: %d, \t qr2: %d, \t qc: %d, \t total: %d\n')%var_counts)
+        if pointwise_multiplier is False:
+            var_counts = tuple(count_vars(scope) for scope in
+                               ['main/pi', 'main/qr1', 'main/qr2', 'main/qc', 'main'])
+            print(('\nNumber of parameters: \t pi: %d, \t qr1: %d, \t qr2: %d, \t qc: %d, \t  total: %d\n')%var_counts)
+        else:
+            var_counts = tuple(count_vars(scope) for scope in
+                               ['main/pi', 'main/qr1', 'main/qr2', 'main/qc', 'main/lam', 'main'])
+            print(
+                ('\nNumber of parameters: \t pi: %d, \t qr1: %d, \t qr2: %d, \t qc: %d, \t lam: %d, \t  total: %d\n') % var_counts)
 
     # Min Double-Q:
     min_q_pi = tf.minimum(qr1_pi, qr2_pi)
@@ -350,7 +382,10 @@ def sac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, ac_kwargs=dict(), seed
     qc_backup = tf.stop_gradient(c_ph + gamma*(1-d_ph)*qc_pi_targ)
 
     # Soft actor-critic losses
-    pi_loss = tf.reduce_mean(alpha * logp_pi - min_q_pi + beta * qc_pi)
+    if pointwise_multiplier:
+        pi_loss = tf.reduce_mean(alpha * logp_pi - min_q_pi + lam * qc_pi)
+    else:
+        pi_loss = tf.reduce_mean(alpha * logp_pi - min_q_pi + beta * qc_pi)
     qr1_loss = 0.5 * tf.reduce_mean((q_backup - qr1)**2)
     qr2_loss = 0.5 * tf.reduce_mean((q_backup - qr2)**2)
     qc_loss = 0.5 * tf.reduce_mean((qc_backup - qc)**2)
@@ -373,7 +408,10 @@ def sac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, ac_kwargs=dict(), seed
             # It's worth checking empirical total undiscounted costs to see if they match.
             cost_constraint = cost_lim * (1 - gamma ** max_ep_len) / (1 - gamma) / max_ep_len
         print('using cost constraint', cost_constraint)
-        beta_loss = beta * (cost_constraint - qc)
+        if pointwise_multiplier is False:
+            beta_loss = beta * (cost_constraint - qc)
+        else:
+            lam_loss = lam * (cost_constraint - tf.clip_by_value(qc, 0, 100))
 
     # Policy train op
     # (has to be separate from value train op, because qr1_pi appears in pi_loss)
@@ -389,9 +427,12 @@ def sac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, ac_kwargs=dict(), seed
             train_entreg_op = entreg_optimizer.minimize(alpha_loss, var_list=get_vars('entreg'))
 
     if use_costs and fixed_cost_penalty is None:
-        costpen_optimizer = MpiAdamOptimizer(learning_rate=lr)
+        cost_optimizer = MpiAdamOptimizer(learning_rate=lr)
         with tf.control_dependencies([train_entreg_op]):
-            train_costpen_op = costpen_optimizer.minimize(beta_loss, var_list=get_vars('costpen'))
+            if pointwise_multiplier is False:
+                train_costpen_op = cost_optimizer.minimize(beta_loss, var_list=get_vars('costpen'))
+            else:
+                train_lam_op = cost_optimizer.minimize(lam_loss, var_list=get_vars('main/lam'))
 
     # Polyak averaging for target variables
     target_update = get_target_update('main', 'target', polyak)
@@ -404,7 +445,10 @@ def sac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, ac_kwargs=dict(), seed
     if fixed_entropy_bonus is None:
         grouped_update = tf.group([grouped_update, train_entreg_op])
     if use_costs and fixed_cost_penalty is None:
-        grouped_update = tf.group([grouped_update, train_costpen_op])
+        if pointwise_multiplier is False:
+            grouped_update = tf.group([grouped_update, train_costpen_op])
+        else:
+            grouped_update = tf.group([grouped_update, train_lam_op])
 
     # Initializing targets to match main variables
     # As a shortcut, use our exponential moving average update w/ coefficient zero
@@ -418,8 +462,12 @@ def sac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, ac_kwargs=dict(), seed
     sess.run(sync_all_params())
 
     # Setup model saving
-    logger.setup_tf_saver(sess, inputs={'x': x_ph, 'a': a_ph},
-                                outputs={'mu': mu, 'pi': pi, 'qr1': qr1, 'qr2': qr2, 'qc': qc})
+    if pointwise_multiplier:
+        logger.setup_tf_saver(sess, inputs={'x': x_ph, 'a': a_ph},
+                                    outputs={'mu': mu, 'pi': pi, 'qr1': qr1, 'qr2': qr2, 'qc': qc, 'lam':lam})
+    else:
+        logger.setup_tf_saver(sess, inputs={'x': x_ph, 'a': a_ph},
+                              outputs={'mu': mu, 'pi': pi, 'qr1': qr1, 'qr2': qr2, 'qc': qc})
 
     def get_action(o, deterministic=False):
         act_op = mu if deterministic else pi
@@ -447,8 +495,13 @@ def sac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, ac_kwargs=dict(), seed
     vars_to_get = dict(LossPi=pi_loss, LossQR1=qr1_loss, LossQR2=qr2_loss, LossQC=qc_loss,
                        QR1Vals=qr1, QR2Vals=qr2, QCVals=qc, LogPi=logp_pi, PiEntropy=pi_entropy,
                        Alpha=alpha, LogAlpha=log_alpha, LossAlpha=alpha_loss)
+    # , QcLim=cost_constraint not allowed, here vars_to_get is a Tensor
     if use_costs:
-        vars_to_get.update(dict(Beta=beta, LogBeta=log_beta, LossBeta=beta_loss))
+        if pointwise_multiplier is False:
+            vars_to_get.update(dict(Beta=beta, LogBeta=log_beta, LossBeta=beta_loss))
+        else:
+            vars_to_get.update(dict(Lam=lam))
+            # pass
 
     print('starting training', proc_id())
 
@@ -507,7 +560,7 @@ def sac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, ac_kwargs=dict(), seed
                 if t < local_update_after:
                     logger.store(**sess.run(vars_to_get, feed_dict))
                 else:
-                    values, _ = sess.run([vars_to_get, grouped_update], feed_dict)
+                    values, _ = sess.run([vars_to_get, grouped_update], feed_dict) # todo:add dual ascent interval here
                     logger.store(**values)
 
         # End of epoch wrap-up
@@ -548,10 +601,14 @@ def sac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, ac_kwargs=dict(), seed
             logger.log_tabular('LossAlpha', average_only=True)
             logger.log_tabular('LogAlpha', average_only=True)
             logger.log_tabular('Alpha', average_only=True)
+            # logger.log_tabular('CostLim', average_only=True)
             if use_costs:
-                logger.log_tabular('LossBeta', average_only=True)
-                logger.log_tabular('LogBeta', average_only=True)
-                logger.log_tabular('Beta', average_only=True)
+                if not pointwise_multiplier:
+                    logger.log_tabular('LossBeta', average_only=True)
+                    logger.log_tabular('LogBeta', average_only=True)
+                    logger.log_tabular('Beta', average_only=True)
+                else:
+                    logger.log_tabular('Lam', with_min_and_max=True)
             logger.log_tabular('PiEntropy', average_only=True)
             logger.log_tabular('TestTime', average_only=True)
             logger.log_tabular('EpochTime', average_only=True)
@@ -581,6 +638,7 @@ if __name__ == '__main__':
     parser.add_argument('--fixed_cost_penalty', default=None, type=float)
     parser.add_argument('--cost_constraint', type=float, default=None)
     parser.add_argument('--cost_lim', type=float, default=25)
+    parser.add_argument('--pointwise_multiplier', default=True)
     args = parser.parse_args()
 
     try:
@@ -593,12 +651,13 @@ if __name__ == '__main__':
     from safe_rl.utils.run_utils import setup_logger_kwargs
     logger_kwargs = setup_logger_kwargs(args.exp_name, args.seed)
 
-    sac(lambda : gym.make(args.env), actor_fn=mlp_actor, critic_fn=mlp_critic,
-        ac_kwargs=dict(hidden_sizes=[args.hid]*args.l),
-        gamma=args.gamma, seed=args.seed, epochs=args.epochs, batch_size=args.batch_size,
-        logger_kwargs=logger_kwargs, steps_per_epoch=args.steps_per_epoch,
-        update_freq=args.update_freq, lr=args.lr, render=args.render,
-        local_start_steps=args.local_start_steps, local_update_after=args.local_update_after,
-        fixed_entropy_bonus=args.fixed_entropy_bonus, entropy_constraint=args.entropy_constraint,
-        fixed_cost_penalty=args.fixed_cost_penalty, cost_constraint=args.cost_constraint,
-        )
+    fsac(lambda: gym.make(args.env), actor_fn=mlp_actor, critic_fn=mlp_critic,
+         ac_kwargs=dict(hidden_sizes=[args.hid] * args.l),
+         gamma=args.gamma, seed=args.seed, epochs=args.epochs, batch_size=args.batch_size,
+         logger_kwargs=logger_kwargs, steps_per_epoch=args.steps_per_epoch,
+         update_freq=args.update_freq, lr=args.lr, render=args.render,
+         local_start_steps=args.local_start_steps, local_update_after=args.local_update_after,
+         fixed_entropy_bonus=args.fixed_entropy_bonus, entropy_constraint=args.entropy_constraint,
+         fixed_cost_penalty=args.fixed_cost_penalty, cost_constraint=args.cost_constraint,
+         pointwise_multiplier=args.pointwise_multiplier, cost_lim=args.cost_lim
+         )
