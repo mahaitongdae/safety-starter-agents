@@ -27,16 +27,17 @@ def test_safety_gym():
 	a = np.array([0.5,0.5])
 	# o, r, d, c, ep_ret, ep_cost, ep_len = env.reset(), 0, False, 0, 0, 0, 0
 	env.reset()
-	while True:
-		o2, r, d, info = env.step(a)
-		env.render()
-		if d:
-			# o, r, d, c, ep_ret, ep_cost, ep_len = env.reset(), 0, False, 0, 0, 0, 0
-			env.reset()
-		# print(o2)
-		print(r)
-		print(d)
-		print(info)
+	# while True:
+	o2, r, d, info = env.step(a)
+	print(o2)
+	# env.render()
+	# if d:
+	# 	# o, r, d, c, ep_ret, ep_cost, ep_len = env.reset(), 0, False, 0, 0, 0, 0
+	# 	env.reset()
+	# # print(o2)
+	# print(r)
+	# print(d)
+	# print(info)
 
 def test_mujoco():
 	# model = load_model_from_path('/home/mahaitong/PycharmProjects/safety-starter-agents/xmls/car.xml')

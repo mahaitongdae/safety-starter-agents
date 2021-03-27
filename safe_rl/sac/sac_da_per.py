@@ -8,6 +8,7 @@ import time
 from safe_rl.utils.logx import EpochLogger
 from safe_rl.utils.mpi_tf import sync_all_params, MpiAdamOptimizer
 from safe_rl.utils.mpi_tools import mpi_fork, mpi_sum, proc_id, mpi_statistics_scalar, num_procs
+from safe_rl.utils.buffer import ReplayBufferWithCost, PrioritizedReplayBuffer
 
 EPS = 1e-8
 
@@ -115,7 +116,7 @@ def mlp_critic(x, a, pi, name, hidden_sizes=(256,256), activation=tf.nn.elu,
     return critic, critic_pi
 
 def mlp_lam(x, a, pi, name, hidden_sizes=(256,256), activation=tf.nn.relu,
-               output_activation=tf.nn.softplus, policy=mlp_gaussian_policy, action_space=None, output_bias=0.1):
+               output_activation=tf.nn.softplus, policy=mlp_gaussian_policy, action_space=None, output_bias=None):
 
     fn_mlp = lambda x : tf.squeeze(mlp(x=x,
                                        hidden_sizes=list(hidden_sizes)+[1],
@@ -171,12 +172,12 @@ Soft Actor-Critic
 """
 def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kwargs=dict(), seed=0,
         steps_per_epoch=1000, epochs=100, replay_size=int(1e6), gamma=0.99, cost_gamma=0.999,
-        polyak=0.995, lr=1e-4, batch_size=1024, local_start_steps=int(1e3),
+        polyak=0.995, lr=1e-4, lam_lr=1e-6, batch_size=1024, local_start_steps=int(1e3),
         max_ep_len=1000, logger_kwargs=dict(), save_freq=10, local_update_after=int(1e3),
         update_freq=1, render=False, 
         fixed_entropy_bonus=None, entropy_constraint=-1.0,
         fixed_cost_penalty=None, cost_constraint=None, cost_lim=None,
-        reward_scale=1, pointwise_multiplier=False
+        reward_scale=1, pointwise_multiplier=False, dual_ascent_inverval=100, max_lam_grad_norm=1.0
         ):
     """
 
@@ -310,7 +311,7 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
         mu, pi, logp_pi = actor_fn(x_ph, a_ph, **ac_kwargs)
         qr1, qr1_pi = critic_fn(x_ph, a_ph, pi, name='qr1', **ac_kwargs)
         qr2, qr2_pi = critic_fn(x_ph, a_ph, pi, name='qr2', **ac_kwargs)
-        qc, qc_pi = critic_fn(x_ph, a_ph, pi, name='qc', output_activation=tf.nn.relu, **ac_kwargs)
+        qc, qc_pi = critic_fn(x_ph, a_ph, pi, name='qc', output_activation=tf.nn.softplus, **ac_kwargs)
 
     with tf.variable_scope('main', reuse=True):
         # Additional policy output from a different observation placeholder
@@ -322,7 +323,7 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
     with tf.variable_scope('target'):
         _, qr1_pi_targ = critic_fn(x2_ph, a_ph, pi2, name='qr1', **ac_kwargs)
         _, qr2_pi_targ = critic_fn(x2_ph, a_ph, pi2, name='qr2', **ac_kwargs)
-        _, qc_pi_targ = critic_fn(x2_ph, a_ph, pi2, name='qc', output_activation=tf.nn.relu, **ac_kwargs)
+        _, qc_pi_targ = critic_fn(x2_ph, a_ph, pi2, name='qc', output_activation=tf.nn.softplus, **ac_kwargs)
 
     # Entropy bonus
     if fixed_entropy_bonus is None:
@@ -359,7 +360,8 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
         print('Not using costs')
 
     # Experience buffer
-    replay_buffer = ReplayBuffer(obs_dim=obs_dim, act_dim=act_dim, size=replay_size)
+    # replay_buffer = ReplayBuffer(obs_dim=obs_dim, act_dim=act_dim, size=replay_size)
+    replay_buffer = PrioritizedReplayBuffer(replay_size)
 
     # Count variables
     if proc_id()==0:
@@ -390,7 +392,8 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
         pi_loss = tf.reduce_mean(alpha * logp_pi - min_q_pi + beta * qc_pi)
     qr1_loss = 0.5 * tf.reduce_mean((q_backup - qr1)**2)
     qr2_loss = 0.5 * tf.reduce_mean((q_backup - qr2)**2)
-    qc_loss = 0.5 * tf.reduce_mean((qc_backup - qc)**2)
+    qc_td_error = qc_backup - qc
+    qc_loss = 0.5 * tf.reduce_mean(qc_td_error**2)
     q_loss = qr1_loss + qr2_loss + qc_loss
 
     # Loss for alpha
@@ -410,10 +413,12 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
             # It's worth checking empirical total undiscounted costs to see if they match.
             cost_constraint = cost_lim * (1 - cost_gamma ** max_ep_len) / (1 - cost_gamma) / max_ep_len
         print('using cost constraint', cost_constraint)
+        violation = qc - cost_constraint
         if pointwise_multiplier is False:
-            beta_loss = beta * (cost_constraint - qc)
+            # beta_loss = beta * (cost_constraint - qc)
+            beta_loss = - beta * violation
         else:
-            lam_loss = lam * tf.clip_by_value(cost_constraint - qc, -0.1, 100)
+            lam_loss = - tf.reduce_mean(lam * violation) # tf.clip_by_value(violation, -0.1, 100)
 
     # Policy train op
     # (has to be separate from value train op, because qr1_pi appears in pi_loss)
@@ -436,8 +441,11 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
             if pointwise_multiplier is False:
                 train_costpen_op = cost_optimizer.minimize(beta_loss, var_list=get_vars('costpen'))
     if pointwise_multiplier:
-        lam_optimizer = MpiAdamOptimizer(learning_rate=lr)
-        train_lam_op = lam_optimizer.minimize(lam_loss, var_list=get_vars('main/lam'))
+        lam_optimizer = MpiAdamOptimizer(learning_rate=lam_lr)
+        grads, vars = zip(*lam_optimizer.compute_gradients(lam_loss, var_list=get_vars('main/lam')))
+        grads, _ = tf.clip_by_global_norm(grads, max_lam_grad_norm) # todo: add to hyper
+        train_lam_op = lam_optimizer.apply_gradients(list(zip(grads, vars))) # note the list here
+        # train_lam_op = lam_optimizer.minimize(lam_loss, var_list=get_vars('main/lam'))
 
     # Polyak averaging for target variables
     target_update = get_target_update('main', 'target', polyak)
@@ -482,14 +490,18 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
         for j in range(n):
             o, r, d, ep_ret, ep_cost, ep_len, ep_goals, = test_env.reset(), 0, False, 0, 0, 0, 0
             while not(d or (ep_len == max_ep_len)):
-                # Take deterministic actions at test time
-                o, r, d, info = test_env.step(get_action(o, True))
+                # Take deterministic actions at test time !!! critical
+                a = get_action(o, True)
+                o2, r, d, info = test_env.step(a)
                 if render and proc_id() == 0 and j == 0:
                     test_env.render()
                 ep_ret += r
+                c = info.get('cost', 0)
                 ep_cost += info.get('cost', 0)
                 ep_len += 1
                 ep_goals += 1 if info.get('goal_met', False) else 0
+                # replay_buffer.add(o, a, r, o2, d, c, None) # add test samples in buffer? actually add deterministic action exploration
+                o = o2
             logger.store(TestEpRet=ep_ret, TestEpCost=ep_cost, TestEpLen=ep_len, TestEpGoals=ep_goals)
 
     start_time = time.time()
@@ -500,12 +512,13 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
     if pointwise_multiplier:
         vars_to_get = dict(LossPi=pi_loss, LossQR1=qr1_loss, LossQR2=qr2_loss, LossQC=qc_loss,
                            QR1Vals=qr1, QR2Vals=qr2, QRTarget=q_backup, QCVals=qc, LogPi=logp_pi, PiEntropy=pi_entropy,
-                           Alpha=alpha, LogAlpha=log_alpha, LossAlpha=alpha_loss, QCTarget=qc_backup,
-                           PenaltyTerms=penalty_terms)
+                           Alpha=alpha, LogAlpha=log_alpha, LossAlpha=alpha_loss, QCTarget=qc_backup, QCTDError=qc_td_error,
+                           PenaltyTerms=penalty_terms, Violation=violation, LossLam=lam_loss)
     else:
         vars_to_get = dict(LossPi=pi_loss, LossQR1=qr1_loss, LossQR2=qr2_loss, LossQC=qc_loss,
                            QR1Vals=qr1, QR2Vals=qr2, QRTarget=q_backup, QCVals=qc, LogPi=logp_pi, PiEntropy=pi_entropy,
-                           Alpha=alpha, LogAlpha=log_alpha, LossAlpha=alpha_loss, QCTarget=qc_backup,)
+                           Alpha=alpha, LogAlpha=log_alpha, LossAlpha=alpha_loss, QCTarget=qc_backup, QCTDError=qc_td_error,
+                           Violation=violation)
     # , QcLim=cost_constraint not allowed, here vars_to_get is a Tensor
     if use_costs:
         if pointwise_multiplier is False:
@@ -521,6 +534,7 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
     local_steps_per_epoch = steps_per_epoch // num_procs() # local has 250 steps per epoch
     local_batch_size = batch_size // num_procs()
     epoch_start_time = time.time()
+    flag1 = False
     for t in range(total_steps // num_procs()): #10w/4=2.5w
         """
         Until local_start_steps have elapsed, randomly sample actions
@@ -548,7 +562,8 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
         d = False if ep_len==max_ep_len else d
 
         # Store experience to replay buffer
-        replay_buffer.store(o, a, r, o2, d, c)
+        # replay_buffer.store(o, a, r, o2, d, c)
+        replay_buffer.add(o, a, r, o2, d, c, None)
 
         # Super critical, easy to overlook step: make sure to update
         # most recent observation!
@@ -560,7 +575,7 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
 
         if t > 0 and t % update_freq == 0:
             for j in range(update_freq):
-                batch = replay_buffer.sample_batch(local_batch_size)
+                batch, idxes = replay_buffer.sample_batch(local_batch_size)
                 feed_dict = {x_ph: batch['obs1'],
                              x2_ph: batch['obs2'],
                              a_ph: batch['acts'],
@@ -569,16 +584,20 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
                              d_ph: batch['done'],
                             }
                 if t < local_update_after:
-                    logger.store(**sess.run(vars_to_get, feed_dict))
+                    values = sess.run(vars_to_get, feed_dict)
+                    logger.store(**values)
                 else:
-                    if t % 10 == 0 and pointwise_multiplier: # todo:add in hyper paras
-                        sess.run(train_lam_op, feed_dict)
+
                     values, _ = sess.run([vars_to_get, grouped_update], feed_dict) # todo:add dual ascent interval here
                     logger.store(**values)
-
+                    if t % dual_ascent_inverval == 0 and pointwise_multiplier:  # todo:add in hyper paras
+                        sess.run(train_lam_op, feed_dict)
+            priority = np.abs(values['QCTDError'])
+            replay_buffer.update_priorities(idxes, priority)
         # End of epoch wrap-up
         if t > 0 and t % local_steps_per_epoch == 0:
             epoch = t // local_steps_per_epoch
+
 
             # Save model
             if (epoch % save_freq == 0) or (epoch == epochs-1):
@@ -608,6 +627,7 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
             logger.log_tabular('QRTarget', with_min_and_max=True)
             logger.log_tabular('QCVals', with_min_and_max=True)
             logger.log_tabular('QCTarget', with_min_and_max=True)
+            logger.log_tabular('QCTDError', with_min_and_max=True)
             logger.log_tabular('LogPi', with_min_and_max=True)
             logger.log_tabular('LossPi', average_only=True)
             logger.log_tabular('LossQR1', average_only=True)
@@ -625,6 +645,8 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
                 else:
                     logger.log_tabular('Lam', with_min_and_max=True)
                     logger.log_tabular('PenaltyTerms', average_only=True)
+                    logger.log_tabular('LossLam', average_only=True)
+            logger.log_tabular('Violation', with_min_and_max=True)
             logger.log_tabular('PiEntropy', average_only=True)
             logger.log_tabular('TestTime', average_only=True)
             logger.log_tabular('EpochTime', average_only=True)
@@ -634,7 +656,7 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--motivation', type=str, default='log QCTarget to see why not learn a normal QC')
+    parser.add_argument('--motivation', type=str, default='add batch size')
     parser.add_argument('--env', type=str, default='Safexp-PointGoal1-v0')
     parser.add_argument('--hid', type=int, default=256)
     parser.add_argument('--l', type=int, default=2)
@@ -644,19 +666,23 @@ if __name__ == '__main__':
     parser.add_argument('--seed', '-s', type=int, default=0)
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--exp_name', type=str, default='sac')
-    parser.add_argument('--steps_per_epoch', type=int, default=4000)
+    parser.add_argument('--steps_per_epoch', type=int, default=16000)
     parser.add_argument('--update_freq', type=int, default=100)
-    parser.add_argument('--cpu', type=int, default=4)
+    parser.add_argument('--cpu', type=int, default=16)
     parser.add_argument('--render', default=False, action='store_true')
-    parser.add_argument('--local_start_steps', default=500, type=int)
-    parser.add_argument('--local_update_after', default=500, type=int)
-    parser.add_argument('--batch_size', default=256, type=int)
+    parser.add_argument('--local_start_steps', default=1000, type=int)
+    parser.add_argument('--local_update_after', default=1000, type=int)
+    parser.add_argument('--batch_size', default=1024, type=int)
     parser.add_argument('--fixed_entropy_bonus', default=None, type=float)
     parser.add_argument('--entropy_constraint', type=float, default=-1.0)
     parser.add_argument('--fixed_cost_penalty', default=None, type=float)
     parser.add_argument('--cost_constraint', type=float, default=5)
     parser.add_argument('--cost_lim', type=float, default=None)
-    parser.add_argument('--pointwise_multiplier', default=False)
+    parser.add_argument('--pointwise_multiplier', default=True)
+    parser.add_argument('--lam_lr', type=float, default=1e-6)
+    parser.add_argument('--dual_ascent_interval', type=int, default=100)
+    parser.add_argument('--max_lam_grad_norm', type=float, default=1.0)
+
     args = parser.parse_args()
 
     try:
@@ -673,9 +699,10 @@ if __name__ == '__main__':
          ac_kwargs=dict(hidden_sizes=[args.hid] * args.l),
          gamma=args.gamma, cost_gamma=args.cost_gamma, seed=args.seed, epochs=args.epochs, batch_size=args.batch_size,
          logger_kwargs=logger_kwargs, steps_per_epoch=args.steps_per_epoch,
-         update_freq=args.update_freq, lr=args.lr, render=args.render,
+         update_freq=args.update_freq, lr=args.lr, lam_lr=args.lam_lr, render=args.render,
          local_start_steps=args.local_start_steps, local_update_after=args.local_update_after,
          fixed_entropy_bonus=args.fixed_entropy_bonus, entropy_constraint=args.entropy_constraint,
          fixed_cost_penalty=args.fixed_cost_penalty, cost_constraint=args.cost_constraint,
-         pointwise_multiplier=args.pointwise_multiplier, cost_lim=args.cost_lim
+         pointwise_multiplier=args.pointwise_multiplier, cost_lim=args.cost_lim, dual_ascent_inverval=args.dual_ascent_interval,
+         max_lam_grad_norm=args.max_lam_grad_norm,
          )
