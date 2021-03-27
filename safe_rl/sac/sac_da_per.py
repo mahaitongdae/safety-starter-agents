@@ -5,6 +5,7 @@ import numpy as np
 import tensorflow as tf
 import gym
 import time
+import os
 from safe_rl.utils.logx import EpochLogger
 from safe_rl.utils.mpi_tf import sync_all_params, MpiAdamOptimizer
 from safe_rl.utils.mpi_tools import mpi_fork, mpi_sum, proc_id, mpi_statistics_scalar, num_procs
@@ -298,7 +299,8 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
     test_env.seed(seed)
 
     # Create summary writer
-    summary_writer = tf.summary.FileWriter(logger_kwargs.get('output_dir'), tf.get_default_graph())
+    logs_dir = logger_kwargs.get('output_dir') + '/logs'
+    summary_writer = tf.summary.FileWriter(logs_dir, tf.get_default_graph())
 
     # Action limit for clamping: critically, assumes all dimensions share the same bound!
     act_limit = env.action_space.high[0]
@@ -732,7 +734,7 @@ if __name__ == '__main__':
     except:
         print('Make sure to install Safety Gym to use constrained RL environments.')
 
-    mpi_fork(args.cpu)
+    # mpi_fork(args.cpu)
 
     from safe_rl.utils.run_utils import setup_logger_kwargs
     logger_kwargs = setup_logger_kwargs(args.exp_name, args.seed)

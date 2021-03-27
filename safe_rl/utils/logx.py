@@ -215,7 +215,7 @@ class Logger:
         if proc_id()==0:
             assert hasattr(self, 'tf_saver_elements'), \
                 "First have to setup saving with self.setup_tf_saver"
-            fpath = 'simple_save' + ('%d'%itr if itr is not None else '')
+            fpath = 'models/simple_save' + ('%d'%itr if itr is not None else '')
             fpath = osp.join(self.output_dir, fpath)
             if osp.exists(fpath):
                 # simple_save refuses to be useful if fpath already exists,
