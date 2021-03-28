@@ -443,8 +443,9 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
         cost_constraint = cost_lim * (1 - cost_gamma ** max_ep_len) / (1 - cost_gamma) / max_ep_len
     print('using cost constraint', cost_constraint)
     violation = qc - cost_constraint
-    vios_count = tf.where(violation > 0, tf.ones_like(violation), tf.zeros_like(violation))
-    tf.summary.scalar('Optimizer/ViolationNums', tf.reduce_sum(vios_count))
+    vios_count = tf.where(qc > cost_constraint, tf.ones_like(qc), tf.zeros_like(qc))
+    vios_rate = tf.reduce_sum(vios_count) / tf.convert_to_tensor(batch_size, dtype=tf.float32)
+    tf.summary.scalar('Optimizer/ViolationRate', vios_rate)
     tf.summary.histogram('Optimizer/Violation', violation)
 
     # Loss for beta
@@ -554,12 +555,12 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
         vars_to_get = dict(LossPi=pi_loss, LossQR1=qr1_loss, LossQR2=qr2_loss, LossQC=qc_loss,
                            QR1Vals=qr1, QR2Vals=qr2, QRTarget=q_backup, QCVals=qc, LogPi=logp_pi, PiEntropy=pi_entropy,
                            Alpha=alpha, LogAlpha=log_alpha, LossAlpha=alpha_loss, QCTarget=qc_backup, QCTDError=qc_td_error,
-                           PenaltyTerms=penalty_terms, LossLam=lam_loss, Violation=violation, ViolationsNum=vios_count)
+                           PenaltyTerms=penalty_terms, LossLam=lam_loss, Violation=violation, ViolationRate=vios_rate, ViolationCount=vios_count)
     else:
         vars_to_get = dict(LossPi=pi_loss, LossQR1=qr1_loss, LossQR2=qr2_loss, LossQC=qc_loss,
                            QR1Vals=qr1, QR2Vals=qr2, QRTarget=q_backup, QCVals=qc, LogPi=logp_pi, PiEntropy=pi_entropy,
                            Alpha=alpha, LogAlpha=log_alpha, LossAlpha=alpha_loss, QCTarget=qc_backup, QCTDError=qc_td_error,
-                           Violation=violation, ViolationsNum=vios_count)
+                           Violation=violation, ViolationRate=vios_rate)
     # , QcLim=cost_constraint not allowed, here vars_to_get is a Tensor
     if use_costs:
         if pointwise_multiplier is False:
@@ -689,7 +690,7 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
             logger.log_tabular('LogAlpha', average_only=True)
             logger.log_tabular('Alpha', average_only=True)
             logger.log_tabular('Violation', with_min_and_max=True)
-            logger.log_tabular('ViolationsNum', average_only=True)
+            logger.log_tabular('ViolationRate', average_only=True)
             if use_costs:
                 if not pointwise_multiplier:
                     logger.log_tabular('LossBeta', average_only=True)
@@ -709,17 +710,17 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--motivation', type=str, default='decrease constraint')
+    parser.add_argument('--motivation', type=str, default='viosratebaseline')
     # Envs
     parser.add_argument('--env', type=str, default='Safexp-PointGoal1-v0')
-    parser.add_argument('--seed', '-s', type=int, default=0)
     parser.add_argument('--render', default=False, action='store_true')
 
     # Runs
-    parser.add_argument('--exp_name', type=str, default='fsac')
+    parser.add_argument('--exp_name', type=str, default='sac_lagrangian')
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--cpu', type=int, default=16)
-    parser.add_argument('--steps_per_epoch', type=int, default=16000)
+    parser.add_argument('--steps_per_epoch', type=int, default=16000) # 16000
+    parser.add_argument('--seed', '-s', type=int, default=0)
 
     # Models
     parser.add_argument('--hid', type=int, default=256)
@@ -737,15 +738,15 @@ if __name__ == '__main__':
     # Constrained RL
     parser.add_argument('--constrained_costs', default=True)
     parser.add_argument('--prioritized_experience_replay', default=True)
-
+    # entropy
     parser.add_argument('--fixed_entropy_bonus', default=None, type=float)
     parser.add_argument('--entropy_constraint', type=float, default=-1.0)
-
+    # constraint threshold
     parser.add_argument('--fixed_cost_penalty', default=None, type=float)
     parser.add_argument('--cost_constraint', type=float, default=3.)
     parser.add_argument('--cost_lim', type=float, default=None)
-
-    parser.add_argument('--pointwise_multiplier', default=True)
+    # Lam net
+    parser.add_argument('--pointwise_multiplier', default=False)
     parser.add_argument('--lam_lr', type=float, default=5e-6)
     parser.add_argument('--dual_ascent_interval', type=int, default=4)
     parser.add_argument('--max_lam_grad_norm', type=float, default=1.0)
