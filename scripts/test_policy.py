@@ -42,11 +42,12 @@ def run_policy(env, get_action, max_ep_len=None, num_episodes=100, render=True):
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--fpath', type=str, default='/home/mahaitong/PycharmProjects/safety-starter-agents/data/2021-03-27_fsac/2021-03-27_13-30-19-sac_s0_first_success/models')
+    parser.add_argument('--fpath', type=str, default=
+    '/home/mahaitong/PycharmProjects/safety-starter-agents/data/2021-03-25_sac/2021-03-25_12-56-55-sac_s0_add_batchsize')
     parser.add_argument('--len', '-l', type=int, default=None)
     parser.add_argument('--episodes', '-n', type=int, default=5)
     parser.add_argument('--norender', '-nr', action='store_true', default=False)
-    parser.add_argument('--itr', '-i', type=int, default=99)
+    parser.add_argument('--itr', '-i', type=int, default=-1)
     parser.add_argument('--deterministic', '-d', action='store_true')
     args = parser.parse_args()
     env, get_action, sess = load_policy(args.fpath,

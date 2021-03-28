@@ -643,7 +643,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--seed', '-s', type=int, default=0)
     parser.add_argument('--epochs', type=int, default=100)
-    parser.add_argument('--exp_name', type=str, default='sac')
+    parser.add_argument('--exp_name', type=str, default='fsac_per')
     parser.add_argument('--steps_per_epoch', type=int, default=4000)
     parser.add_argument('--update_freq', type=int, default=100)
     parser.add_argument('--cpu', type=int, default=4)

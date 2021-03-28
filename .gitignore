@@ -31,7 +31,7 @@ MANIFEST
 *.manifest
 *.spec
 
-# Installer logs
+# Installer fsac
 pip-log.txt
 pip-delete-this-directory.txt
 

@@ -178,7 +178,8 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
         update_freq=1, render=False, 
         fixed_entropy_bonus=None, entropy_constraint=-1.0,
         fixed_cost_penalty=None, cost_constraint=None, cost_lim=None,
-        reward_scale=1, pointwise_multiplier=False, dual_ascent_inverval=100, max_lam_grad_norm=1.0
+        reward_scale=1, pointwise_multiplier=False, dual_ascent_inverval=100, max_lam_grad_norm=1.0,
+        prioritized_experience_replay=False, constrained_costs=True, **kwargs
         ):
     """
 
@@ -282,7 +283,8 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
             Units are (expectation of undiscounted sum of costs in a single episode).
             If None, cost_lim is not used, and if no cost constraints are used, do naive optimization.
     """
-    use_costs = fixed_cost_penalty or cost_constraint or cost_lim
+    # use_costs = fixed_cost_penalty or cost_constraint or cost_lim
+    use_costs = constrained_costs
 
     logger = EpochLogger(**logger_kwargs)
     logger.save_config(locals())
@@ -299,7 +301,7 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
     test_env.seed(seed)
 
     # Create summary writer
-    logs_dir = logger_kwargs.get('output_dir') + '/logs'
+    logs_dir = logger_kwargs.get('output_dir') + '/fsac'
     summary_writer = tf.summary.FileWriter(logs_dir, tf.get_default_graph())
 
     # Action limit for clamping: critically, assumes all dimensions share the same bound!
@@ -375,7 +377,10 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
 
     # Experience buffer
     # replay_buffer = ReplayBuffer(obs_dim=obs_dim, act_dim=act_dim, size=replay_size)
-    replay_buffer = PrioritizedReplayBuffer(replay_size)
+    if prioritized_experience_replay:
+        replay_buffer = PrioritizedReplayBuffer(replay_size)
+    else:
+        replay_buffer = ReplayBufferWithCost(replay_size)
 
     # Count variables
     if proc_id()==0:
@@ -429,22 +434,25 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
     tf.summary.scalar('Optimizer/PiEntrophy',pi_entropy)
     tf.summary.scalar('Optimizer/LossAlpha', alpha_loss)
 
+    if cost_constraint is None:
+        # Convert assuming equal cost accumulated each step
+        # Note this isn't the case, since the early in episode doesn't usually have cost,
+        # but since our algorithm optimizes the discounted infinite horizon from each entry
+        # in the replay buffer, we should be approximately correct here.
+        # It's worth checking empirical total undiscounted costs to see if they match.
+        cost_constraint = cost_lim * (1 - cost_gamma ** max_ep_len) / (1 - cost_gamma) / max_ep_len
+    print('using cost constraint', cost_constraint)
+    violation = qc - cost_constraint
+    vios_count = tf.where(violation > 0, tf.ones_like(violation), tf.zeros_like(violation))
+    tf.summary.scalar('Optimizer/ViolationNums', tf.reduce_sum(vios_count))
+    tf.summary.histogram('Optimizer/Violation', violation)
+
     # Loss for beta
     if use_costs:
-        if cost_constraint is None:
-            # Convert assuming equal cost accumulated each step
-            # Note this isn't the case, since the early in episode doesn't usually have cost,
-            # but since our algorithm optimizes the discounted infinite horizon from each entry
-            # in the replay buffer, we should be approximately correct here.
-            # It's worth checking empirical total undiscounted costs to see if they match.
-            cost_constraint = cost_lim * (1 - cost_gamma ** max_ep_len) / (1 - cost_gamma) / max_ep_len
-        print('using cost constraint', cost_constraint)
-        violation = qc - cost_constraint
-        tf.summary.histogram('Optimizer/Violation', violation)
         if pointwise_multiplier is False:
             # beta_loss = beta * (cost_constraint - qc)
             beta_loss = - beta * violation
-            tf.summary.scalar('Optimizer/LossBeta', beta_loss)
+            tf.summary.scalar('Optimizer/LossBeta', tf.reduce_mean(beta_loss))
         else:
             lam_loss = - tf.reduce_mean(lam * violation) # tf.clip_by_value(violation, -0.1, 100)
             tf.summary.scalar('Optimizer/LossLam', lam_loss)
@@ -546,12 +554,12 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
         vars_to_get = dict(LossPi=pi_loss, LossQR1=qr1_loss, LossQR2=qr2_loss, LossQC=qc_loss,
                            QR1Vals=qr1, QR2Vals=qr2, QRTarget=q_backup, QCVals=qc, LogPi=logp_pi, PiEntropy=pi_entropy,
                            Alpha=alpha, LogAlpha=log_alpha, LossAlpha=alpha_loss, QCTarget=qc_backup, QCTDError=qc_td_error,
-                           PenaltyTerms=penalty_terms, Violation=violation, LossLam=lam_loss)
+                           PenaltyTerms=penalty_terms, LossLam=lam_loss, Violation=violation, ViolationsNum=vios_count)
     else:
         vars_to_get = dict(LossPi=pi_loss, LossQR1=qr1_loss, LossQR2=qr2_loss, LossQC=qc_loss,
                            QR1Vals=qr1, QR2Vals=qr2, QRTarget=q_backup, QCVals=qc, LogPi=logp_pi, PiEntropy=pi_entropy,
                            Alpha=alpha, LogAlpha=log_alpha, LossAlpha=alpha_loss, QCTarget=qc_backup, QCTDError=qc_td_error,
-                           Violation=violation)
+                           Violation=violation, ViolationsNum=vios_count)
     # , QcLim=cost_constraint not allowed, here vars_to_get is a Tensor
     if use_costs:
         if pointwise_multiplier is False:
@@ -633,8 +641,9 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
                     if j % 10 == 0 and proc_id() == 0:
                         summary = sess.run(merged_summary, feed_dict)
                         summary_writer.add_summary(summary, global_step=(t + j) *num_procs())
-            priority = np.abs(values['QCTDError'])
-            replay_buffer.update_priorities(idxes, priority)
+            if prioritized_experience_replay:
+                priority = np.abs(values['QCTDError'])
+                replay_buffer.update_priorities(idxes, priority)
         # End of epoch wrap-up
         if t > 0 and t % local_steps_per_epoch == 0:
             epoch = t // local_steps_per_epoch
@@ -679,17 +688,17 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
             logger.log_tabular('LossAlpha', average_only=True)
             logger.log_tabular('LogAlpha', average_only=True)
             logger.log_tabular('Alpha', average_only=True)
+            logger.log_tabular('Violation', with_min_and_max=True)
+            logger.log_tabular('ViolationsNum', average_only=True)
             if use_costs:
                 if not pointwise_multiplier:
                     logger.log_tabular('LossBeta', average_only=True)
                     logger.log_tabular('LogBeta', average_only=True)
                     logger.log_tabular('Beta', average_only=True)
-
                 else:
                     logger.log_tabular('Lam', with_min_and_max=True)
                     logger.log_tabular('PenaltyTerms', average_only=True)
                     logger.log_tabular('LossLam', average_only=True)
-            logger.log_tabular('Violation', with_min_and_max=True)
             logger.log_tabular('PiEntropy', average_only=True)
             logger.log_tabular('TestTime', average_only=True)
             logger.log_tabular('EpochTime', average_only=True)
@@ -700,32 +709,48 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--motivation', type=str, default='add batch size')
+    parser.add_argument('--motivation', type=str, default='decrease constraint')
+    # Envs
     parser.add_argument('--env', type=str, default='Safexp-PointGoal1-v0')
+    parser.add_argument('--seed', '-s', type=int, default=0)
+    parser.add_argument('--render', default=False, action='store_true')
+
+    # Runs
+    parser.add_argument('--exp_name', type=str, default='fsac')
+    parser.add_argument('--epochs', type=int, default=100)
+    parser.add_argument('--cpu', type=int, default=16)
+    parser.add_argument('--steps_per_epoch', type=int, default=16000)
+
+    # Models
     parser.add_argument('--hid', type=int, default=256)
     parser.add_argument('--l', type=int, default=2)
+    parser.add_argument('--lr', type=float, default=1e-3)
+
+    # Agents
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--cost_gamma', type=float, default=0.995)
-    parser.add_argument('--lr', type=float, default=1e-3)
-    parser.add_argument('--seed', '-s', type=int, default=0)
-    parser.add_argument('--epochs', type=int, default=100)
-    parser.add_argument('--exp_name', type=str, default='sac')
-    parser.add_argument('--steps_per_epoch', type=int, default=16000)
     parser.add_argument('--update_freq', type=int, default=100)
-    parser.add_argument('--cpu', type=int, default=16)
-    parser.add_argument('--render', default=False, action='store_true')
     parser.add_argument('--local_start_steps', default=1000, type=int)
     parser.add_argument('--local_update_after', default=1000, type=int)
     parser.add_argument('--batch_size', default=1024, type=int)
+
+    # Constrained RL
+    parser.add_argument('--constrained_costs', default=True)
+    parser.add_argument('--prioritized_experience_replay', default=True)
+
     parser.add_argument('--fixed_entropy_bonus', default=None, type=float)
     parser.add_argument('--entropy_constraint', type=float, default=-1.0)
+
     parser.add_argument('--fixed_cost_penalty', default=None, type=float)
-    parser.add_argument('--cost_constraint', type=float, default=5)
+    parser.add_argument('--cost_constraint', type=float, default=3.)
     parser.add_argument('--cost_lim', type=float, default=None)
+
     parser.add_argument('--pointwise_multiplier', default=True)
     parser.add_argument('--lam_lr', type=float, default=5e-6)
-    parser.add_argument('--dual_ascent_interval', type=int, default=10)
+    parser.add_argument('--dual_ascent_interval', type=int, default=4)
     parser.add_argument('--max_lam_grad_norm', type=float, default=1.0)
+
+
 
     args = parser.parse_args()
 
@@ -734,7 +759,7 @@ if __name__ == '__main__':
     except:
         print('Make sure to install Safety Gym to use constrained RL environments.')
 
-    # mpi_fork(args.cpu)
+    mpi_fork(args.cpu)
 
     from safe_rl.utils.run_utils import setup_logger_kwargs
     logger_kwargs = setup_logger_kwargs(args.exp_name, args.seed)
@@ -748,5 +773,6 @@ if __name__ == '__main__':
          fixed_entropy_bonus=args.fixed_entropy_bonus, entropy_constraint=args.entropy_constraint,
          fixed_cost_penalty=args.fixed_cost_penalty, cost_constraint=args.cost_constraint,
          pointwise_multiplier=args.pointwise_multiplier, cost_lim=args.cost_lim, dual_ascent_inverval=args.dual_ascent_interval,
-         max_lam_grad_norm=args.max_lam_grad_norm,
+         max_lam_grad_norm=args.max_lam_grad_norm, motivation=args.motivation, env_id=args.env,
+         constrained_costs=args.constrained_costs,
          )
