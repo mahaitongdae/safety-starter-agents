@@ -172,13 +172,13 @@ class ReplayBuffer:
 Soft Actor-Critic
 """
 def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kwargs=dict(), seed=0,
-        steps_per_epoch=1000, epochs=100, replay_size=int(1e6), gamma=0.99, cost_gamma=0.999,
-        polyak=0.995, lr=1e-4, lam_lr=1e-6, batch_size=1024, local_start_steps=int(1e3),
+        steps_per_epoch=1000, epochs=100, replay_size=int(1e6), gamma=0.99, cost_gamma=0.995,
+        polyak=0.995, lr=1e-3, lam_lr=5e-6, batch_size=1024, local_start_steps=int(1e3),
         max_ep_len=1000, logger_kwargs=dict(), save_freq=10, local_update_after=int(1e3),
-        update_freq=1, render=False, 
+        update_freq=100, render=False,
         fixed_entropy_bonus=None, entropy_constraint=-1.0,
         fixed_cost_penalty=None, cost_constraint=None, cost_lim=None,
-        reward_scale=1, pointwise_multiplier=False, dual_ascent_inverval=100, max_lam_grad_norm=1.0,
+        reward_scale=1, pointwise_multiplier=False, dual_ascent_inverval=4, max_lam_grad_norm=1.0,
         prioritized_experience_replay=False, constrained_costs=True, **kwargs
         ):
     """
@@ -710,13 +710,13 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--motivation', type=str, default='viosratebaseline')
+    parser.add_argument('--motivation', type=str, default='change env test')
     # Envs
-    parser.add_argument('--env', type=str, default='Safexp-PointGoal1-v0')
+    parser.add_argument('--env', type=str, default='Safexp-PointButton1-v0')
     parser.add_argument('--render', default=False, action='store_true')
 
     # Runs
-    parser.add_argument('--exp_name', type=str, default='sac_lagrangian')
+    parser.add_argument('--exp_name', type=str, default='fsac')
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--cpu', type=int, default=16)
     parser.add_argument('--steps_per_epoch', type=int, default=16000) # 16000
@@ -737,7 +737,7 @@ if __name__ == '__main__':
 
     # Constrained RL
     parser.add_argument('--constrained_costs', default=True)
-    parser.add_argument('--prioritized_experience_replay', default=True)
+    parser.add_argument('--prioritized_experience_replay', default=False)
     # entropy
     parser.add_argument('--fixed_entropy_bonus', default=None, type=float)
     parser.add_argument('--entropy_constraint', type=float, default=-1.0)
@@ -746,7 +746,7 @@ if __name__ == '__main__':
     parser.add_argument('--cost_constraint', type=float, default=3.)
     parser.add_argument('--cost_lim', type=float, default=None)
     # Lam net
-    parser.add_argument('--pointwise_multiplier', default=False)
+    parser.add_argument('--pointwise_multiplier', default=True)
     parser.add_argument('--lam_lr', type=float, default=5e-6)
     parser.add_argument('--dual_ascent_interval', type=int, default=4)
     parser.add_argument('--max_lam_grad_norm', type=float, default=1.0)
@@ -760,7 +760,7 @@ if __name__ == '__main__':
     except:
         print('Make sure to install Safety Gym to use constrained RL environments.')
 
-    mpi_fork(args.cpu)
+    mpi_fork(args.cpu, bind_to_core=True)
 
     from safe_rl.utils.run_utils import setup_logger_kwargs
     logger_kwargs = setup_logger_kwargs(args.exp_name, args.seed)
