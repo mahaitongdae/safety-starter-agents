@@ -467,7 +467,7 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
 
     # Policy train op
     # (has to be separate from value train op, because qr1_pi appears in pi_loss)
-    train_pi_op = MpiAdamOptimizer(learning_rate=decayed_lr).minimize(pi_loss, var_list=get_vars('main/pi'), name='train_pi')
+    train_pi_op = MpiAdamOptimizer(learning_rate=decayed_lr).minimize(pi_loss, var_list=get_vars('main/pi'), name='train_pi', global_step=local_step)
 
     # Value train op
     with tf.control_dependencies([train_pi_op]):
@@ -490,7 +490,7 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
         lam_optimizer = MpiAdamOptimizer(learning_rate=decayed_lam_lr)
         grads, vars = zip(*lam_optimizer.compute_gradients(lam_loss, var_list=get_vars('main/lam')))
         grads, _ = tf.clip_by_global_norm(grads, max_lam_grad_norm)
-        train_lam_op = lam_optimizer.apply_gradients(list(zip(grads, vars))) # note the list here
+        train_lam_op = lam_optimizer.apply_gradients(list(zip(grads, vars)),global_step=local_ascent_step) # note the list here
         # train_lam_op = lam_optimizer.minimize(lam_loss, var_list=get_vars('main/lam'))
 
     # Polyak averaging for target variables
