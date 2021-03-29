@@ -32,7 +32,7 @@ def main(robot, task, algo, seed, exp_name, cpu):
     cost_constraint = 3.0
 
     # Fork for parallelizing
-    # mpi_fork(cpu, bind_to_core=True)
+    mpi_fork(cpu, bind_to_core=True)
 
     # Prepare Logger
     exp_name = exp_name # or (algo + '_' + robot.lower() + task.lower())
@@ -63,7 +63,7 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=0, nargs='*')
     parser.add_argument('--exp_name', type=str, default='test_lam_net')
     parser.add_argument('--cpu', type=int, default=16)
-    parser.add_argument('--motivation', type=str, default='change envs')
+    parser.add_argument('--motivation', type=str, default='change lr')
     args = parser.parse_args()
     exp_name = args.exp_name if not(args.exp_name=='') else None
     main(args.robot, args.task, args.algo, args.seed, exp_name, args.cpu)

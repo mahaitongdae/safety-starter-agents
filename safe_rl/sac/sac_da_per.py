@@ -173,7 +173,7 @@ Soft Actor-Critic
 """
 def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kwargs=dict(), seed=0,
         steps_per_epoch=1000, epochs=100, replay_size=int(1e6), gamma=0.99, cost_gamma=0.995,
-        polyak=0.995, lr=1e-3, lam_lr=5e-6, batch_size=1024, local_start_steps=int(1e3),
+        polyak=0.995, lr=1e-4, lam_lr=5e-6, batch_size=1024, local_start_steps=int(1e3),
         max_ep_len=1000, logger_kwargs=dict(), save_freq=10, local_update_after=int(1e3),
         update_freq=100, render=False,
         fixed_entropy_bonus=None, entropy_constraint=-1.0,
@@ -311,7 +311,7 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
     ac_kwargs['action_space'] = env.action_space
 
     # Inputs to computation graph
-    x_ph, a_ph, x2_ph, r_ph, d_ph, c_ph = placeholders(obs_dim, act_dim, obs_dim, None, None, None)
+    x_ph, a_ph, x2_ph, r_ph, d_ph, c_ph, t_ph = placeholders(obs_dim, act_dim, obs_dim, None, None, None, 1)
 
     # Main outputs from computation graph
     with tf.variable_scope('main'):
@@ -459,29 +459,32 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
             tf.summary.scalar('Optimizer/LossLam', lam_loss)
 
     merged_summary = tf.summary.merge_all()
+    decayed_lr = tf.train.polynomial_decay(learning_rate=lr,global_step=t_ph,decay_steps=1e4,end_learning_rate=8e-6)
+    decayed_lam_lr = tf.train.polynomial_decay(learning_rate=lam_lr, global_step=t_ph, decay_steps=1e4,
+                                           end_learning_rate=2e-6)
 
     # Policy train op
     # (has to be separate from value train op, because qr1_pi appears in pi_loss)
-    train_pi_op = MpiAdamOptimizer(learning_rate=lr).minimize(pi_loss, var_list=get_vars('main/pi'), name='train_pi')
+    train_pi_op = MpiAdamOptimizer(learning_rate=decayed_lr).minimize(pi_loss, var_list=get_vars('main/pi'), name='train_pi')
     # train_pi_noc_op = MpiAdamOptimizer(learning_rate=lr).minimize(pi_loss_noc, var_list=get_vars('main/pi'), name='train_pi')
 
 
     # Value train op
     with tf.control_dependencies([train_pi_op]):
-        train_q_op = MpiAdamOptimizer(learning_rate=lr).minimize(q_loss, var_list=get_vars('main/q'), name='train_q')
+        train_q_op = MpiAdamOptimizer(learning_rate=decayed_lr).minimize(q_loss, var_list=get_vars('main/q'), name='train_q')
 
     if fixed_entropy_bonus is None:
-        entreg_optimizer = MpiAdamOptimizer(learning_rate=lr)
+        entreg_optimizer = MpiAdamOptimizer(learning_rate=lr[0])
         with tf.control_dependencies([train_q_op]):
             train_entreg_op = entreg_optimizer.minimize(alpha_loss, var_list=get_vars('entreg'))
 
     if use_costs and fixed_cost_penalty is None:
-        cost_optimizer = MpiAdamOptimizer(learning_rate=lr)
+        cost_optimizer = MpiAdamOptimizer(learning_rate=lr[0])
         with tf.control_dependencies([train_entreg_op]):
             if pointwise_multiplier is False:
                 train_costpen_op = cost_optimizer.minimize(beta_loss, var_list=get_vars('costpen'))
     if pointwise_multiplier:
-        lam_optimizer = MpiAdamOptimizer(learning_rate=lam_lr)
+        lam_optimizer = MpiAdamOptimizer(learning_rate=decayed_lam_lr)
         grads, vars = zip(*lam_optimizer.compute_gradients(lam_loss, var_list=get_vars('main/lam')))
         grads, _ = tf.clip_by_global_norm(grads, max_lam_grad_norm) # todo: add to hyper
         train_lam_op = lam_optimizer.apply_gradients(list(zip(grads, vars))) # note the list here
@@ -626,6 +629,7 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
                              r_ph: batch['rews'],
                              c_ph: batch['costs'],
                              d_ph: batch['done'],
+                             t_ph: t
                             }
                 if t < local_update_after:
                     values = sess.run(vars_to_get, feed_dict)
