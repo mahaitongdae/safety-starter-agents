@@ -460,7 +460,7 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
 
 
     local_step = tf.Variable(0.0, trainable=False)
-    decayed_lr = tf.train.polynomial_decay(learning_rate=lr,global_step=local_step,decay_steps=1e4,end_learning_rate=8e-6)
+    decayed_lr = tf.train.polynomial_decay(learning_rate=lr,global_step=local_step,decay_steps=epochs*steps_per_epoch,end_learning_rate=8e-6)
 
     tf.summary.scalar('Optimizer/lr', decayed_lr)
     merged_summary = tf.summary.merge_all()
@@ -485,7 +485,8 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
                 train_costpen_op = cost_optimizer.minimize(beta_loss, var_list=get_vars('costpen'))
     if pointwise_multiplier:
         local_ascent_step = tf.Variable(0.0, trainable=False)
-        decayed_lam_lr = tf.train.polynomial_decay(learning_rate=lam_lr, global_step=local_ascent_step, decay_steps=1e4,
+        decayed_lam_lr = tf.train.polynomial_decay(learning_rate=lam_lr, global_step=local_ascent_step,
+                                                   decay_steps=epochs*steps_per_epoch/dual_ascent_inverval,
                                                    end_learning_rate=2e-6)
         lam_optimizer = MpiAdamOptimizer(learning_rate=decayed_lam_lr)
         grads, vars = zip(*lam_optimizer.compute_gradients(lam_loss, var_list=get_vars('main/lam')))
