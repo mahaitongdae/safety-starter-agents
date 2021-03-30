@@ -12,6 +12,8 @@ def main(robot, task, algo, seed, exp_name, cpu, **kwargs):
     robot_list = ['point', 'car', 'doggo']
     task_list = ['goal1', 'goal2', 'button1', 'button2', 'push1', 'push2']
     algo_list = ['sac','sac_lagrangian','sac_lagrangian_per','fsac','fsac_per']
+    algo_list.append('fsac_v2')
+    algo_list.append('sac_v2')
 
     algo = algo.lower()
     task = task.capitalize()
@@ -29,7 +31,7 @@ def main(robot, task, algo, seed, exp_name, cpu, **kwargs):
         epochs = 100
         steps_per_epoch = 16000 # max episode length: 1000
     save_freq = 10
-    cost_constraint = 3.0
+    cost_constraint = 9.5 # todo:3.0, add to version control
 
     # Fork for parallelizing
     mpi_fork(cpu, bind_to_core=True)
@@ -60,7 +62,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--robot', type=str, default='Point')
     parser.add_argument('--task', type=str, default='Button1')
-    parser.add_argument('--algo', type=str, default='fsac')
+    parser.add_argument('--algo', type=str, default='sac_v2')
     parser.add_argument('--seed', type=int, default=0, nargs='*')
     parser.add_argument('--exp_name', type=str, default='test_lam_net')
     parser.add_argument('--cpu', type=int, default=16)
@@ -68,5 +70,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
     exp_name = args.exp_name if not(args.exp_name=='') else None
     main(args.robot, args.task, args.algo, args.seed, exp_name, args.cpu
-         , motivation=args.motivation)
+         , motivation=args.motivation, version='v2')
     # main2(args.algo, args.seed, exp_name, args.cpu)
