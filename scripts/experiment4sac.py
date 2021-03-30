@@ -6,7 +6,7 @@ from safe_rl.utils.run_utils import setup_logger_kwargs
 from safe_rl.utils.mpi_tools import mpi_fork
 
 
-def main(robot, task, algo, seed, exp_name, cpu):
+def main(robot, task, algo, seed, exp_name, cpu, **kwargs):
 
     # Verify experiment
     robot_list = ['point', 'car', 'doggo']
@@ -51,7 +51,8 @@ def main(robot, task, algo, seed, exp_name, cpu):
          save_freq=save_freq,
          cost_constraint=cost_constraint,
          seed=seed,
-         logger_kwargs=logger_kwargs
+         logger_kwargs=logger_kwargs,
+         **kwargs
          )
 
 if __name__ == '__main__':
@@ -59,12 +60,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--robot', type=str, default='Point')
     parser.add_argument('--task', type=str, default='Button1')
-    parser.add_argument('--algo', type=str, default='fsac_per')
+    parser.add_argument('--algo', type=str, default='fsac')
     parser.add_argument('--seed', type=int, default=0, nargs='*')
     parser.add_argument('--exp_name', type=str, default='test_lam_net')
     parser.add_argument('--cpu', type=int, default=16)
-    parser.add_argument('--motivation', type=str, default='change lr')
+    parser.add_argument('--motivation', type=str, default='no per test')
     args = parser.parse_args()
     exp_name = args.exp_name if not(args.exp_name=='') else None
-    main(args.robot, args.task, args.algo, args.seed, exp_name, args.cpu)
+    main(args.robot, args.task, args.algo, args.seed, exp_name, args.cpu
+         , motivation=args.motivation)
     # main2(args.algo, args.seed, exp_name, args.cpu)

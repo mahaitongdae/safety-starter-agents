@@ -2,7 +2,7 @@
 
 import time
 import numpy as np
-from safe_rl.utils.load_utils import load_policy
+from safe_rl.utils.load_utils import load_policy, load_policy_withQ
 from safe_rl.utils.logx import EpochLogger
 
 
@@ -20,7 +20,7 @@ def run_policy(env, get_action, max_ep_len=None, num_episodes=100, render=True):
             env.render()
             time.sleep(1e-3)
 
-        a = get_action(o)
+        a = get_vars(o)['a']
         a = np.clip(a, env.action_space.low, env.action_space.high)
         o, r, d, info = env.step(a)
         ep_ret += r
@@ -50,7 +50,7 @@ if __name__ == '__main__':
     parser.add_argument('--itr', '-i', type=int, default=-1)
     parser.add_argument('--deterministic', '-d', action='store_true', default=False)
     args = parser.parse_args()
-    env, get_action, sess = load_policy(args.fpath,
+    env, get_vars, sess = load_policy(args.fpath,
                                         args.itr if args.itr >=0 else 'last',
                                         args.deterministic)
-    run_policy(env, get_action, args.len, args.episodes, not(args.norender))
+    run_policy(env, get_vars, args.len, args.episodes, not(args.norender))

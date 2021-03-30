@@ -78,7 +78,7 @@ class Logger:
 
         Args:
             output_dir (string): A directory for saving results to. If 
-                ``None``, defaults to a temp directory of the form
+                ``None``, defaults to a _temp directory of the form
                 ``/tmp/experiments/somerandomnumber``.
 
             output_fname (string): Name for the tab-separated-value file 
