@@ -55,7 +55,6 @@ def plot_data(data, xaxis='Epoch', value="AverageEpRet",
         data = pd.concat(data, ignore_index=True)
 
     font_scale = 1. if paper else 1.
-    print(font_scale)
     sns.set(style="darkgrid", font_scale=font_scale)
     """
     #sns.set_palette(sns.color_palette('muted'))
@@ -74,7 +73,7 @@ def plot_data(data, xaxis='Epoch', value="AverageEpRet",
     #"""
     if logy:
         data[value] = np.log10(data[value])
-    sns.tsplot(data=data, time=xaxis, value=value, unit="Unit", condition=condition, ci='sd', **kwargs)
+    sns.tsplot(data=data[:-1], time=xaxis, value=value, unit="Unit", condition=condition, ci='sd', **kwargs)
     """
     If you upgrade to any version of Seaborn greater than 0.8.1, switch from 
     tsplot to lineplot replacing L29 with:
@@ -273,10 +272,10 @@ def make_plots(all_logdirs, legend=None, xaxis=None, values=None, count=False,
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('logdir', default='data/2021-02-21_Crossroad/', nargs='*')
+    parser.add_argument('logdir', default='/home/mahaitong/PycharmProjects/safety-starter-agents/data/_temp/dq', nargs='*')
     parser.add_argument('--legend', '-l', nargs='*')
     parser.add_argument('--xaxis', '-x', default='TotalEnvInteracts')
-    parser.add_argument('--value', '-y', default='Performance', nargs='*')
+    parser.add_argument('--value', '-y', default='AverageEpCost', nargs='*')
     parser.add_argument('--count', action='store_true')
     parser.add_argument('--smooth', '-s', type=int, default=1)
     parser.add_argument('--select', nargs='*')

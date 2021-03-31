@@ -18,7 +18,8 @@ def run_policy_withQ(env, get_action, get_values, max_ep_len=None, num_episodes=
     assert env is not None, \
         "Environment not found!\n\n It looks like the environment wasn't saved, " + \
         "and we can't run the agent in it. :("
-    test_dir = os.path.join(kwargs.get('log_dir'),'tests')
+    dir_name = 'tests_itr_' + str(kwargs.get('itr'))
+    test_dir = os.path.join(kwargs.get('log_dir'),dir_name)
     if not os.path.exists(test_dir):
         os.makedirs(test_dir)
     logger = EpochLogger(output_dir=test_dir)
@@ -42,8 +43,8 @@ def run_policy_withQ(env, get_action, get_values, max_ep_len=None, num_episodes=
         o, r, d, info = env.step(a)
         ep_ret += r
         ep_cost += info.get('cost', 0)
-        c = 0.1 * ( -  info.get('cost', 0) + 1)
-        ep_cost_l.append(c)
+        # c = 0.1 * ( -  info.get('cost', 0) + 1)
+        ep_cost_l.append(info.get('cost', 0))
         ep_rew_l.append(r)
         ep_len += 1
 
@@ -70,6 +71,18 @@ def run_policy_withQ(env, get_action, get_values, max_ep_len=None, num_episodes=
             csv_name = 'runs_' + str(n) + '.csv'
             csv_path = os.path.join(test_dir, csv_name)
             df.to_csv(csv_path)
+            plt.figure()
+            plt.plot(df['Steps'], df['QC'], label='QC')
+            plt.plot(df['Steps'], df['TrueQC'], label='realQC')
+            plt.legend(loc='best')
+            fig_name = 'runs_' + str(n) + '_qc.png'
+            plt.savefig(os.path.join(test_dir, fig_name))
+            plt.figure()
+            plt.plot(df['Steps'], df['QR'], label='QR')
+            plt.plot(df['Steps'], df['TrueQR'], label='realQR')
+            plt.legend(loc='best')
+            fig_name = 'runs_' + str(n) + '_qr.png'
+            plt.savefig(os.path.join(test_dir, fig_name))
             logger.store(EpRet=ep_ret, EpCost=ep_cost, EpLen=ep_len)
             print('Episode %d \t EpRet %.3f \t EpCost %.3f \t EpLen %d'%(n, ep_ret, ep_cost, ep_len))
             o, r, d, ep_ret, ep_cost, ep_len = env.reset(), 0, False, 0, 0, 0
@@ -103,11 +116,11 @@ def run():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--fpath', type=str, default=
-    '/home/mahaitong/PycharmProjects/safety-starter-agents/data/2021-03-31_fsac_per_v2_PointButton1/2021-03-31_08-38-08-fsac_per_v2_PointButton1_s0')
+    '/home/mahaitong/PycharmProjects/safety-starter-agents/data/2021-03-31_fsac-per-dq_PointButton1/2021-03-31_18-20-33-fsac-per-dq_PointButton1_s0')
     parser.add_argument('--len', '-l', type=int, default=None)
     parser.add_argument('--episodes', '-n', type=int, default=5)
     parser.add_argument('--norender', '-nr', action='store_true', default=False)
-    parser.add_argument('--itr', '-i', type=int, default=80)
+    parser.add_argument('--itr', '-i', type=int, default=-1)
     parser.add_argument('--deterministic', '-d', action='store_true', default=False)
     args = parser.parse_args()
     model_path = os.path.join(args.fpath, 'models')
@@ -115,10 +128,10 @@ def run():
                                                            args.itr if args.itr >= 0 else 'last',
                                                            args.deterministic)
     run_policy_withQ(env, get_actions, get_values, args.len, args.episodes, not (args.norender),
-                     log_dir=args.fpath)
+                     log_dir=args.fpath, itr=args.itr)
 
 if __name__ == '__main__':
-    # run()
-    plot(
-        '/home/mahaitong/PycharmProjects/safety-starter-agents/data/2021-03-31_fsac_per_v2_PointButton1/2021-03-31_08-38-08-fsac_per_v2_PointButton1_s0/tests/runs_0.csv')
+    run()
+    # plot(
+    #     '/home/mahaitong/PycharmProjects/safety-starter-agents/data/2021-03-31_fsac_per_v2_PointButton1/2021-03-31_08-38-08-fsac_per_v2_PointButton1_s0/tests/runs_0.csv')
 #

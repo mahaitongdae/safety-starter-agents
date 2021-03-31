@@ -172,14 +172,14 @@ class ReplayBuffer:
 Soft Actor-Critic
 """
 def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kwargs=dict(), seed=0,
-        steps_per_epoch=1000, epochs=100, replay_size=int(1e6), gamma=0.99, cost_gamma=0.995,
+        steps_per_epoch=1000, epochs=100, replay_size=int(1e6), gamma=0.99, cost_gamma=0.99,
         polyak=0.995, lr=1e-4, lam_lr=5e-6, batch_size=256*16, local_start_steps=int(1e3),
         max_ep_len=1000, logger_kwargs=dict(), save_freq=10, local_update_after=int(1e3),
         update_freq=100, render=False,
         fixed_entropy_bonus=None, entropy_constraint=-1.0,
         fixed_cost_penalty=None, cost_constraint=None, cost_lim=None,
         reward_scale=1, pointwise_multiplier=False, dual_ascent_inverval=4, max_lam_grad_norm=3.0,
-        prioritized_experience_replay=False, constrained_costs=True, double_qc=True, **kwargs
+        prioritized_experience_replay=False, constrained_costs=True, double_qc=False, **kwargs
         ):
     """
 
@@ -494,7 +494,7 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
     decayed_lr = tf.train.polynomial_decay(learning_rate=lr,global_step=local_step,decay_steps=epochs*steps_per_epoch,end_learning_rate=8e-6)
 
     tf.summary.scalar('Optimizer/lr', decayed_lr)
-    merged_summary = tf.summary.merge_all()
+
 
     # Policy train op
     # (has to be separate from value train op, because qr1_pi appears in pi_loss)
@@ -522,9 +522,11 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
                                                    end_learning_rate=2e-6)
         lam_optimizer = MpiAdamOptimizer(learning_rate=decayed_lam_lr)
         grads, vars = zip(*lam_optimizer.compute_gradients(lam_loss, var_list=get_vars('main/lam')))
-        grads, _ = tf.clip_by_global_norm(grads, max_lam_grad_norm)
+        grads, grad_norm = tf.clip_by_global_norm(grads, max_lam_grad_norm)
         train_lam_op = lam_optimizer.apply_gradients(list(zip(grads, vars))) # ,global_step=local_ascent_step
         # train_lam_op = lam_optimizer.minimize(lam_loss, var_list=get_vars('main/lam'))
+        tf.summary.scalar('Optimizer/LamGradNorm', grad_norm)
+        merged_summary = tf.summary.merge_all()
 
     # Polyak averaging for target variables
     target_update = get_target_update('main', 'target', polyak)
@@ -600,6 +602,8 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
                            QR1Vals=qr1, QR2Vals=qr2, QRTarget=q_backup, QCVals=qc, LogPi=logp_pi, PiEntropy=pi_entropy,
                            Alpha=alpha, LogAlpha=log_alpha, LossAlpha=alpha_loss, QCTarget=qc_backup, QCTDError=qc_td_error,
                            Violation=violation, ViolationRate=vios_rate)
+    if double_qc:
+        vars_to_get.update(dict(LossQC1=qc1_loss, LossQC2=qc2_loss,QC2Vals=qc2))
     # , QcLim=cost_constraint not allowed, here vars_to_get is a Tensor
     if use_costs:
         if pointwise_multiplier is False:
@@ -718,6 +722,8 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
             logger.log_tabular('QR2Vals', with_min_and_max=True)
             logger.log_tabular('QRTarget', with_min_and_max=True)
             logger.log_tabular('QCVals', with_min_and_max=True)
+            if double_qc:
+                logger.log_tabular('QC2Vals', with_min_and_max=True)
             logger.log_tabular('QCTarget', with_min_and_max=True)
             logger.log_tabular('QCTDError', with_min_and_max=True)
             logger.log_tabular('LogPi', with_min_and_max=True)
@@ -725,6 +731,9 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
             logger.log_tabular('LossQR1', average_only=True)
             logger.log_tabular('LossQR2', average_only=True)
             logger.log_tabular('LossQC', average_only=True)
+            if double_qc:
+                logger.log_tabular('LossQC1', average_only=True)
+                logger.log_tabular('LossQC2', average_only=True)
             logger.log_tabular('LossAlpha', average_only=True)
             logger.log_tabular('LogAlpha', average_only=True)
             logger.log_tabular('Alpha', average_only=True)
