@@ -179,7 +179,7 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
         fixed_entropy_bonus=None, entropy_constraint=-1.0,
         fixed_cost_penalty=None, cost_constraint=None, cost_lim=None,
         reward_scale=1, pointwise_multiplier=False, dual_ascent_inverval=4, max_lam_grad_norm=3.0,
-        prioritized_experience_replay=False, constrained_costs=True, **kwargs
+        prioritized_experience_replay=False, constrained_costs=True, double_qc=True, **kwargs
         ):
     """
 
@@ -319,10 +319,14 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
         qr1, qr1_pi = critic_fn(x_ph, a_ph, pi, name='qr1', **ac_kwargs)
         qr2, qr2_pi = critic_fn(x_ph, a_ph, pi, name='qr2', **ac_kwargs)
         qc, qc_pi = critic_fn(x_ph, a_ph, pi, name='qc', output_activation=tf.nn.softplus, **ac_kwargs)
+        if double_qc:
+            qc2, qc2_pi = critic_fn(x_ph, a_ph, pi, name='qc2', output_activation=tf.nn.softplus, **ac_kwargs)
+            tf.summary.histogram('Optimizer/QC2Vals', qc2)
 
     tf.summary.histogram('Optimizer/QCVals', qc)
     tf.summary.histogram('Optimizer/QR1Vals', qr1)
     tf.summary.histogram('Optimizer/QR2Vals', qr2)
+
 
     with tf.variable_scope('main', reuse=True):
         # Additional policy output from a different observation placeholder
@@ -335,6 +339,8 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
         _, qr1_pi_targ = critic_fn(x2_ph, a_ph, pi2, name='qr1', **ac_kwargs)
         _, qr2_pi_targ = critic_fn(x2_ph, a_ph, pi2, name='qr2', **ac_kwargs)
         _, qc_pi_targ = critic_fn(x2_ph, a_ph, pi2, name='qc', output_activation=tf.nn.softplus, **ac_kwargs)
+        if double_qc:
+            _, qc2_pi_targ = critic_fn(x2_ph, a_ph, pi2, name='qc2', output_activation=tf.nn.softplus, **ac_kwargs)
 
     # Entropy bonus
     if fixed_entropy_bonus is None:
@@ -398,25 +404,46 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
     min_q_pi = tf.minimum(qr1_pi, qr2_pi)
     min_q_pi_targ = tf.minimum(qr1_pi_targ, qr2_pi_targ)
 
+    if double_qc:
+        max_qc = tf.maximum(qc, qc2)
+        max_qc_pi = tf.maximum(qc_pi, qc2_pi)
+        max_qc_pi_targ = tf.maximum(qc_pi_targ, qc2_pi_targ)
+        qc_backup = tf.stop_gradient(c_ph + cost_gamma * (1 - d_ph) * max_qc_pi_targ)
+    else:
+        qc_backup = tf.stop_gradient(c_ph + cost_gamma * (1 - d_ph) * qc_pi_targ)
+
     # Targets for Q and V regression
     q_backup = tf.stop_gradient(r_ph + gamma*(1-d_ph)*(min_q_pi_targ - alpha * logp_pi2))
-    qc_backup = tf.stop_gradient(c_ph + cost_gamma*(1-d_ph)*qc_pi_targ)
     tf.summary.histogram('Optimizer/QCTarget', qc_backup)
     tf.summary.histogram('Optimizer/QTarget', q_backup)
 
     # Soft actor-critic losses
     if pointwise_multiplier:
-        penalty_terms = lam * qc_pi
-        pi_loss = tf.reduce_mean(alpha * logp_pi - min_q_pi + penalty_terms)
+        if double_qc:
+            penalty_terms = lam * max_qc_pi
+            pi_loss = tf.reduce_mean(alpha * logp_pi - min_q_pi + penalty_terms)
+        else:
+            penalty_terms = lam * qc_pi
+            pi_loss = tf.reduce_mean(alpha * logp_pi - min_q_pi + penalty_terms)
         tf.summary.scalar('Optimizer/PenaltyTerms', tf.reduce_mean(penalty_terms))
         tf.summary.scalar('Optimizer/LossPi', pi_loss)
     else:
-        pi_loss = tf.reduce_mean(alpha * logp_pi - min_q_pi + beta * qc_pi)
+        if double_qc:
+            pi_loss = tf.reduce_mean(alpha * logp_pi - min_q_pi + beta * max_qc_pi)
+        else:
+            pi_loss = tf.reduce_mean(alpha * logp_pi - min_q_pi + beta * qc_pi)
         tf.summary.scalar('Optimizer/LossPi', pi_loss)
     qr1_loss = 0.5 * tf.reduce_mean((q_backup - qr1)**2)
     qr2_loss = 0.5 * tf.reduce_mean((q_backup - qr2)**2)
     qc_td_error = qc_backup - qc
-    qc_loss = 0.5 * tf.reduce_mean(qc_td_error**2)
+    if double_qc:
+        qc1_loss = 0.5 * tf.reduce_mean((qc_backup - qc)**2)
+        qc2_loss = 0.5 * tf.reduce_mean((qc_backup - qc2)**2)
+        qc_loss = qc1_loss + qc2_loss
+        tf.summary.scalar('Optimizer/LossQC1', qc1_loss)
+        tf.summary.scalar('Optimizer/LossQC2', qc2_loss)
+    else:
+        qc_loss = 0.5 * tf.reduce_mean(qc_td_error**2)
     q_loss = qr1_loss + qr2_loss + qc_loss
     tf.summary.scalar('Optimizer/LossQR1', qr1_loss)
     tf.summary.scalar('Optimizer/LossQR2', qr2_loss)
@@ -442,8 +469,12 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
         # It's worth checking empirical total undiscounted costs to see if they match.
         cost_constraint = cost_lim * (1 - cost_gamma ** max_ep_len) / (1 - cost_gamma) / max_ep_len
     print('using cost constraint', cost_constraint)
-    violation = qc - cost_constraint
-    vios_count = tf.where(qc > cost_constraint, tf.ones_like(qc), tf.zeros_like(qc))
+    if double_qc:
+        violation = max_qc - cost_constraint
+        vios_count = tf.where(max_qc > cost_constraint, tf.ones_like(qc), tf.zeros_like(qc))
+    else:
+        violation = qc - cost_constraint
+        vios_count = tf.where(qc > cost_constraint, tf.ones_like(qc), tf.zeros_like(qc))
     vios_rate = tf.reduce_sum(vios_count) / tf.convert_to_tensor(batch_size / 16, dtype=tf.float32) # todo:cpus
     tf.summary.scalar('Optimizer/ViolationRate', vios_rate)
     tf.summary.histogram('Optimizer/Violation', violation)

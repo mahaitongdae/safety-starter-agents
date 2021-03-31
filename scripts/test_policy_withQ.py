@@ -42,7 +42,8 @@ def run_policy_withQ(env, get_action, get_values, max_ep_len=None, num_episodes=
         o, r, d, info = env.step(a)
         ep_ret += r
         ep_cost += info.get('cost', 0)
-        ep_cost_l.append(info.get('cost', 0))
+        c = 0.1 * ( -  info.get('cost', 0) + 1)
+        ep_cost_l.append(c)
         ep_rew_l.append(r)
         ep_len += 1
 
@@ -56,7 +57,7 @@ def run_policy_withQ(env, get_action, get_values, max_ep_len=None, num_episodes=
             ep_qc.append(qc_terminal)
             ep_qr.append(qr_terminal)
             ep_lam.append(lam_terminal)
-            ep_true_qc = discount_cumsum(ep_cost_l, 0.995)
+            ep_true_qc = discount_cumsum(ep_cost_l, 0.99)
             ep_true_qr = discount_cumsum(ep_rew_l, 0.99)
             bias = np.array(ep_qc).squeeze()-ep_true_qc
             df = pd.DataFrame(dict(QC=np.array(ep_qc).squeeze(),
@@ -98,23 +99,26 @@ def plot(file):
     # sns.pointplot(x='Steps',y='TrueQC', data=df)
     plt.show()
 
+def run():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--fpath', type=str, default=
+    '/home/mahaitong/PycharmProjects/safety-starter-agents/data/2021-03-31_fsac_per_v2_PointButton1/2021-03-31_08-38-08-fsac_per_v2_PointButton1_s0')
+    parser.add_argument('--len', '-l', type=int, default=None)
+    parser.add_argument('--episodes', '-n', type=int, default=5)
+    parser.add_argument('--norender', '-nr', action='store_true', default=False)
+    parser.add_argument('--itr', '-i', type=int, default=80)
+    parser.add_argument('--deterministic', '-d', action='store_true', default=False)
+    args = parser.parse_args()
+    model_path = os.path.join(args.fpath, 'models')
+    env, get_actions, get_values, sess = load_policy_withQ(model_path,
+                                                           args.itr if args.itr >= 0 else 'last',
+                                                           args.deterministic)
+    run_policy_withQ(env, get_actions, get_values, args.len, args.episodes, not (args.norender),
+                     log_dir=args.fpath)
+
 if __name__ == '__main__':
-    # import argparse
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument('--fpath', type=str, default=
-    # '/home/mahaitong/PycharmProjects/safety-starter-agents/data/2021-03-31_fsac_per_PointButton1/2021-03-31_04-41-42-fsac_per_PointButton1_s0_80_for_videl')
-    # parser.add_argument('--len', '-l', type=int, default=None)
-    # parser.add_argument('--episodes', '-n', type=int, default=5)
-    # parser.add_argument('--norender', '-nr', action='store_true', default=False)
-    # parser.add_argument('--itr', '-i', type=int, default=80)
-    # parser.add_argument('--deterministic', '-d', action='store_true', default=False)
-    # args = parser.parse_args()
-    # model_path = os.path.join(args.fpath, 'models')
-    # env, get_actions, get_values, sess = load_policy_withQ(model_path,
-    #                                     args.itr if args.itr >=0 else 'last',
-    #                                     args.deterministic)
-    # run_policy_withQ(env, get_actions, get_values,args.len, args.episodes, not(args.norender),
-    #                  log_dir=args.fpath)
+    # run()
     plot(
-        '/data/2021-03-31_fsac_per_PointButton1/2021-03-31_04-41-42-fsac_per_PointButton1_s0_80_for_videl/tests/runs_2.csv')
+        '/home/mahaitong/PycharmProjects/safety-starter-agents/data/2021-03-31_fsac_per_v2_PointButton1/2021-03-31_08-38-08-fsac_per_v2_PointButton1_s0/tests/runs_0.csv')
 #
