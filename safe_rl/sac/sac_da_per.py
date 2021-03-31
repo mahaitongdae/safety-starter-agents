@@ -173,7 +173,7 @@ Soft Actor-Critic
 """
 def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kwargs=dict(), seed=0,
         steps_per_epoch=1000, epochs=100, replay_size=int(1e6), gamma=0.99, cost_gamma=0.995,
-        polyak=0.995, lr=1e-4, lam_lr=5e-6, batch_size=1024, local_start_steps=int(1e3),
+        polyak=0.995, lr=1e-4, lam_lr=5e-6, batch_size=256*16, local_start_steps=int(1e3),
         max_ep_len=1000, logger_kwargs=dict(), save_freq=10, local_update_after=int(1e3),
         update_freq=100, render=False,
         fixed_entropy_bonus=None, entropy_constraint=-1.0,
@@ -444,7 +444,7 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
     print('using cost constraint', cost_constraint)
     violation = qc - cost_constraint
     vios_count = tf.where(qc > cost_constraint, tf.ones_like(qc), tf.zeros_like(qc))
-    vios_rate = tf.reduce_sum(vios_count) / tf.convert_to_tensor(batch_size, dtype=tf.float32)
+    vios_rate = tf.reduce_sum(vios_count) / tf.convert_to_tensor(batch_size / 16, dtype=tf.float32) # todo:cpus
     tf.summary.scalar('Optimizer/ViolationRate', vios_rate)
     tf.summary.histogram('Optimizer/Violation', violation)
 
@@ -556,7 +556,7 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
 
     start_time = time.time()
     o, r, d, ep_ret, ep_cost, ep_len, ep_goals = env.reset(), 0, False, 0, 0, 0, 0
-    total_steps = steps_per_epoch * epochs # 1000 * 100 = 10w
+    total_steps = steps_per_epoch * epochs # 8000*100 = 8e5
 
     # variables to measure in an update
     if pointwise_multiplier:
@@ -586,7 +586,7 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
     local_batch_size = batch_size // num_procs()
     epoch_start_time = time.time()
     flag1 = False
-    for t in range(total_steps // num_procs()):
+    for t in range(int(total_steps) // num_procs()):
         """
         Until local_start_steps have elapsed, randomly sample actions
         from a uniform distribution for better exploration. Afterwards,

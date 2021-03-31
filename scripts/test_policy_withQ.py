@@ -66,7 +66,7 @@ def run_policy_withQ(env, get_action, get_values, max_ep_len=None, num_episodes=
                                    TrueQR=ep_true_qr,
                                    Steps=np.arange(ep_len + 1),
                                    Bias=bias))
-            csv_name = 'runs_' + str(d) + '.csv'
+            csv_name = 'runs_' + str(n) + '.csv'
             csv_path = os.path.join(test_dir, csv_name)
             df.to_csv(csv_path)
             logger.store(EpRet=ep_ret, EpCost=ep_cost, EpLen=ep_len)
@@ -90,6 +90,10 @@ def plot(file):
     plt.plot(df['Steps'],df['QC'],label='QC')
     plt.plot(df['Steps'], df['TrueQC'],label='realQC')
     plt.legend(loc='best')
+    plt.figure()
+    plt.plot(df['Steps'], df['QR'], label='QR')
+    plt.plot(df['Steps'], df['TrueQR'], label='realQR')
+    plt.legend(loc='best')
     # sns.pointplot(x='Steps',y='QC', data=df)
     # sns.pointplot(x='Steps',y='TrueQC', data=df)
     plt.show()
@@ -98,11 +102,11 @@ if __name__ == '__main__':
     # import argparse
     # parser = argparse.ArgumentParser()
     # parser.add_argument('--fpath', type=str, default=
-    # '/home/mahaitong/PycharmProjects/safety-starter-agents/data/2021-03-30_fsac_per_PointButton1/2021-03-30_09-41-04-fsac_per_PointButton1_s0')
+    # '/home/mahaitong/PycharmProjects/safety-starter-agents/data/2021-03-31_fsac_per_PointButton1/2021-03-31_04-41-42-fsac_per_PointButton1_s0_80_for_videl')
     # parser.add_argument('--len', '-l', type=int, default=None)
     # parser.add_argument('--episodes', '-n', type=int, default=5)
     # parser.add_argument('--norender', '-nr', action='store_true', default=False)
-    # parser.add_argument('--itr', '-i', type=int, default=-1)
+    # parser.add_argument('--itr', '-i', type=int, default=80)
     # parser.add_argument('--deterministic', '-d', action='store_true', default=False)
     # args = parser.parse_args()
     # model_path = os.path.join(args.fpath, 'models')
@@ -111,4 +115,6 @@ if __name__ == '__main__':
     #                                     args.deterministic)
     # run_policy_withQ(env, get_actions, get_values,args.len, args.episodes, not(args.norender),
     #                  log_dir=args.fpath)
-    plot('/home/mahaitong/PycharmProjects/safety-starter-agents/data/2021-03-30_fsac_per_PointButton1/2021-03-30_09-41-04-fsac_per_PointButton1_s0/tests/runs_True.csv')
+    plot(
+        '/data/2021-03-31_fsac_per_PointButton1/2021-03-31_04-41-42-fsac_per_PointButton1_s0_80_for_videl/tests/runs_2.csv')
+#

@@ -101,12 +101,13 @@ def mlp_actor(x, a, name='pi', hidden_sizes=(256,256), activation=tf.nn.relu,
 
 
 def mlp_critic(x, a, pi, name, hidden_sizes=(256,256), activation=tf.nn.elu,
-               output_activation=None, policy=mlp_gaussian_policy, action_space=None):
+               output_activation=None, policy=mlp_gaussian_policy, action_space=None, output_bias=None):
 
     fn_mlp = lambda x : tf.squeeze(mlp(x=x,
                                        hidden_sizes=list(hidden_sizes)+[1],
                                        activation=activation,
-                                       output_activation=output_activation),
+                                       output_activation=output_activation,
+                                       output_bias=output_bias),
                                    axis=1)
     with tf.variable_scope(name):
         critic = fn_mlp(tf.concat([x,a], axis=-1))
@@ -173,7 +174,7 @@ Soft Actor-Critic
 """
 def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kwargs=dict(), seed=0,
         steps_per_epoch=1000, epochs=100, replay_size=int(1e6), gamma=0.99, cost_gamma=0.99,
-        polyak=0.995, lr=1e-4, lam_lr=5e-6, batch_size=1024, local_start_steps=int(1e3),
+        polyak=0.995, lr=1e-4, lam_lr=5e-6, batch_size=256*16, local_start_steps=int(1e3),
         max_ep_len=1000, logger_kwargs=dict(), save_freq=10, local_update_after=int(1e3),
         update_freq=100, render=False,
         fixed_entropy_bonus=None, entropy_constraint=-1.0,
@@ -318,7 +319,7 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
         mu, pi, logp_pi = actor_fn(x_ph, a_ph, **ac_kwargs)
         qr1, qr1_pi = critic_fn(x_ph, a_ph, pi, name='qr1', **ac_kwargs)
         qr2, qr2_pi = critic_fn(x_ph, a_ph, pi, name='qr2', **ac_kwargs)
-        qc, qc_pi = critic_fn(x_ph, a_ph, pi, name='qc', output_activation=tf.nn.softplus, **ac_kwargs)
+        qc, qc_pi = critic_fn(x_ph, a_ph, pi, name='qc', output_activation=tf.nn.softplus, output_bias=8.0, **ac_kwargs)
 
     tf.summary.histogram('Optimizer/QCVals', qc)
     tf.summary.histogram('Optimizer/QR1Vals', qr1)
@@ -334,7 +335,7 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
     with tf.variable_scope('target'):
         _, qr1_pi_targ = critic_fn(x2_ph, a_ph, pi2, name='qr1', **ac_kwargs)
         _, qr2_pi_targ = critic_fn(x2_ph, a_ph, pi2, name='qr2', **ac_kwargs)
-        _, qc_pi_targ = critic_fn(x2_ph, a_ph, pi2, name='qc', output_activation=tf.nn.softplus, **ac_kwargs)
+        _, qc_pi_targ = critic_fn(x2_ph, a_ph, pi2, name='qc', output_activation=tf.nn.softplus, output_bias=8.0, **ac_kwargs)
 
     # Entropy bonus
     if fixed_entropy_bonus is None:
@@ -444,7 +445,7 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
     print('using cost constraint', cost_constraint)
     violation = - (qc - cost_constraint)
     vios_count = tf.where(qc < cost_constraint, tf.ones_like(qc), tf.zeros_like(qc))
-    vios_rate = tf.reduce_sum(vios_count) / tf.convert_to_tensor(batch_size, dtype=tf.float32)
+    vios_rate = tf.reduce_sum(vios_count) / tf.convert_to_tensor(batch_size / 16, dtype=tf.float32)
     tf.summary.scalar('Optimizer/ViolationRate', vios_rate)
     tf.summary.histogram('Optimizer/Violation', violation)
 
@@ -586,7 +587,7 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
     local_batch_size = batch_size // num_procs()
     epoch_start_time = time.time()
     flag1 = False
-    for t in range(total_steps // num_procs()):
+    for t in range(int(total_steps) // num_procs()):
         """
         Until local_start_steps have elapsed, randomly sample actions
         from a uniform distribution for better exploration. Afterwards,

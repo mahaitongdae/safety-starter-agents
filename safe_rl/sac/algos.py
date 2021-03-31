@@ -40,3 +40,9 @@ def fsac_per(**kwargs):
                       pointwise_multiplier=True,
                       prioritized_experience_replay=True)
     run_fsac(**fsac_kwargs, **kwargs)
+
+def fsac_per_v2(**kwargs):
+    fsac_kwargs = dict(constrained_costs=True,
+                      pointwise_multiplier=True,
+                      prioritized_experience_replay=True)
+    run_fsac_v2(**fsac_kwargs, **kwargs)
