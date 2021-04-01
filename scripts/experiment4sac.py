@@ -11,10 +11,7 @@ def main(robot, task, algo, seed, exp_name, cpu, **kwargs):
     # Verify experiment
     robot_list = ['point', 'car', 'doggo']
     task_list = ['goal1', 'goal2', 'button1', 'button2', 'push1', 'push2']
-    algo_list = ['sac','sac_lagrangian','sac_lagrangian_per','fsac','fsac_per', 'fsac_per_dq']
-    algo_list.append('fsac_v2')
-    algo_list.append('sac_v2')
-    algo_list.append('fsac_per_v2')
+    algo_list = ['sac','sac_lagrangian','sac_lagrangian_per','fsac', 'fsac_per']
 
     algo = algo.lower()
     task = task.capitalize()
@@ -29,7 +26,7 @@ def main(robot, task, algo, seed, exp_name, cpu, **kwargs):
         epochs = 100
         steps_per_epoch = 16000  # max episode length: 1000
     else:
-        epochs = 100
+        epochs = 200
         steps_per_epoch = 16000 # max episode length: 1000
     save_freq = 10
     cost_constraint = 3.0 # todo:3.0, add to version control
@@ -63,13 +60,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--robot', type=str, default='Point')
     parser.add_argument('--task', type=str, default='Button1')
-    parser.add_argument('--algo', type=str, default='fsac_per_dq')
+    parser.add_argument('--algo', type=str, default='fsac_per')
     parser.add_argument('--seed', type=int, default=0, nargs='*')
     parser.add_argument('--exp_name', type=str, default='default')
     parser.add_argument('--cpu', type=int, default=16)
-    parser.add_argument('--motivation', type=str, default='double Q for qc')
+    parser.add_argument('--motivation', type=str, default='lam obs only')
     args = parser.parse_args()
     exp_name = args.exp_name if not(args.exp_name=='') else None
     main(args.robot, args.task, args.algo, args.seed, exp_name, args.cpu
-         , motivation=args.motivation, version='v2')
+         , motivation=args.motivation, lam_obs_only=True)
     # main2(args.algo, args.seed, exp_name, args.cpu)

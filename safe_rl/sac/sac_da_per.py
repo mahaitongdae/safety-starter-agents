@@ -116,8 +116,8 @@ def mlp_critic(x, a, pi, name, hidden_sizes=(256,256), activation=tf.nn.elu,
 
     return critic, critic_pi
 
-def mlp_lam(x, a, pi, name, hidden_sizes=(256,256), activation=tf.nn.relu,
-               output_activation=tf.nn.softplus, policy=mlp_gaussian_policy, action_space=None, output_bias=None):
+def mlp_lam(x, a, pi, name, hidden_sizes=(256,256), activation=tf.nn.relu, output_activation=tf.nn.softplus,
+            policy=mlp_gaussian_policy, action_space=None, output_bias=None, lam_obs_only=False):
 
     fn_mlp = lambda x : tf.squeeze(mlp(x=x,
                                        hidden_sizes=list(hidden_sizes)+[1],
@@ -126,7 +126,10 @@ def mlp_lam(x, a, pi, name, hidden_sizes=(256,256), activation=tf.nn.relu,
                                        output_bias=output_bias),
                                    axis=1)
     with tf.variable_scope(name):
-        lam = fn_mlp(tf.concat([x,a], axis=-1))
+        if lam_obs_only:
+            lam = fn_mlp(tf.concat([x], axis=-1))
+        else:
+            lam = fn_mlp(tf.concat([x,a], axis=-1))
 
     # with tf.variable_scope(name, reuse=True):
     #     critic_pi = fn_mlp(tf.concat([x,pi], axis=-1))
@@ -178,8 +181,8 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
         update_freq=100, render=False,
         fixed_entropy_bonus=None, entropy_constraint=-1.0,
         fixed_cost_penalty=None, cost_constraint=None, cost_lim=None,
-        reward_scale=1, pointwise_multiplier=False, dual_ascent_inverval=4, max_lam_grad_norm=3.0,
-        prioritized_experience_replay=False, constrained_costs=True, double_qc=False, **kwargs
+        reward_scale=1, pointwise_multiplier=False, dual_ascent_inverval=20, max_lam_grad_norm=10.0,
+        prioritized_experience_replay=False, constrained_costs=True, double_qc=True, lam_obs_only=False, **kwargs
         ):
     """
 
@@ -371,7 +374,7 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
                 tf.summary.scalar('Optimizer/LogBeta', log_beta)
             else:
                 with tf.variable_scope('main', reuse=tf.AUTO_REUSE):
-                    lam = lam_fn(x_ph, a_ph, pi, name='lam', **ac_kwargs)
+                    lam = lam_fn(x_ph, a_ph, pi, name='lam', lam_obs_only=lam_obs_only, **ac_kwargs)
                     tf.summary.histogram('Optimizer/Lam', lam)
 
         else:
@@ -494,7 +497,7 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
     decayed_lr = tf.train.polynomial_decay(learning_rate=lr,global_step=local_step,decay_steps=epochs*steps_per_epoch,end_learning_rate=8e-6)
 
     tf.summary.scalar('Optimizer/lr', decayed_lr)
-
+    merged_summary = tf.summary.merge_all()
 
     # Policy train op
     # (has to be separate from value train op, because qr1_pi appears in pi_loss)
@@ -525,8 +528,8 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
         grads, grad_norm = tf.clip_by_global_norm(grads, max_lam_grad_norm)
         train_lam_op = lam_optimizer.apply_gradients(list(zip(grads, vars))) # ,global_step=local_ascent_step
         # train_lam_op = lam_optimizer.minimize(lam_loss, var_list=get_vars('main/lam'))
-        tf.summary.scalar('Optimizer/LamGradNorm', grad_norm)
-        merged_summary = tf.summary.merge_all()
+        # tf.summary.scalar('Optimizer/LamGradNorm', grad_norm)
+
 
     # Polyak averaging for target variables
     target_update = get_target_update('main', 'target', polyak)
