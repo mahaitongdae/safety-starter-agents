@@ -19,7 +19,7 @@ def convert(v):
     return ' '.join(str(i) for i in np.asarray(v))
 
 def test_safety_gym():
-	env = gym.make('Safexp-PointGoal1-v0')
+	env = gym.make('Safexp-PointButton1-v0')
 	# env = gym.make('CrossroadEnd2end-v0',
 	# 			   training_task='left')
 	act_shape = env.action_space.shape

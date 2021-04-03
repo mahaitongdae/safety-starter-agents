@@ -29,7 +29,7 @@ def main(robot, task, algo, seed, exp_name, cpu, **kwargs):
         epochs = 200
         steps_per_epoch = 16000 # max episode length: 1000
     save_freq = 10
-    cost_constraint = 3.0 # todo:3.0, add to version control
+    cost_constraint = 10.0 # todo:3.0, add to version control
 
     # Fork for parallelizing
     mpi_fork(cpu)
@@ -64,7 +64,7 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=0, nargs='*')
     parser.add_argument('--exp_name', type=str, default='default')
     parser.add_argument('--cpu', type=int, default=16)
-    parser.add_argument('--motivation', type=str, default='lam obs only')
+    parser.add_argument('--motivation', type=str, default='increase qc cstr')
     args = parser.parse_args()
     exp_name = args.exp_name if not(args.exp_name=='') else None
     main(args.robot, args.task, args.algo, args.seed, exp_name, args.cpu

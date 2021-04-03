@@ -116,12 +116,12 @@ def run():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--fpath', type=str, default=
-    '/home/mahaitong/PycharmProjects/safety-starter-agents/data/2021-03-31_fsac-per-dq_PointButton1/2021-03-31_18-20-33-fsac-per-dq_PointButton1_s0')
+    '/home/mahaitong/PycharmProjects/safety-starter-agents/data/2021-04-02_fsac_per_PointButton1/2021-04-02_07-59-43-fsac_per_PointButton1_s0')
     parser.add_argument('--len', '-l', type=int, default=None)
     parser.add_argument('--episodes', '-n', type=int, default=5)
     parser.add_argument('--norender', '-nr', action='store_true', default=False)
     parser.add_argument('--itr', '-i', type=int, default=-1)
-    parser.add_argument('--deterministic', '-d', action='store_true', default=False)
+    parser.add_argument('--deterministic', '-d', action='store_true', default=True)
     args = parser.parse_args()
     model_path = os.path.join(args.fpath, 'models')
     env, get_actions, get_values, sess = load_policy_withQ(model_path,
