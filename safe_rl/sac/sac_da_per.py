@@ -182,7 +182,7 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
         fixed_entropy_bonus=None, entropy_constraint=-1.0,
         fixed_cost_penalty=None, cost_constraint=None, cost_lim=None,
         reward_scale=1, pointwise_multiplier=False, dual_ascent_inverval=20, max_lam_grad_norm=10.0,
-        prioritized_experience_replay=False, constrained_costs=True, double_qc=True, lam_obs_only=False, **kwargs
+        prioritized_experience_replay=False, constrained_costs=True, double_qc=False, lam_obs_only=False, **kwargs
         ):
     """
 
