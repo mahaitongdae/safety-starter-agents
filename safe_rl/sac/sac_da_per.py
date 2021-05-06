@@ -341,9 +341,9 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
     with tf.variable_scope('target'):
         _, qr1_pi_targ = critic_fn(x2_ph, a_ph, pi2, name='qr1', **ac_kwargs)
         _, qr2_pi_targ = critic_fn(x2_ph, a_ph, pi2, name='qr2', **ac_kwargs)
-        _, qc_pi_targ = critic_fn(x2_ph, a_ph, pi2, name='qc', output_activation=tf.nn.softplus, **ac_kwargs)
+        _, qc_pi_targ = critic_fn(x2_ph, a_ph, pi2, name='qc',  **ac_kwargs)
         if double_qc:
-            _, qc2_pi_targ = critic_fn(x2_ph, a_ph, pi2, name='qc2', output_activation=tf.nn.softplus, **ac_kwargs)
+            _, qc2_pi_targ = critic_fn(x2_ph, a_ph, pi2, name='qc2', **ac_kwargs)
 
     # Entropy bonus
     if fixed_entropy_bonus is None:
@@ -411,9 +411,9 @@ def fsac(env_fn, actor_fn=mlp_actor, critic_fn=mlp_critic, lam_fn=mlp_lam, ac_kw
         max_qc = tf.maximum(qc, qc2)
         max_qc_pi = tf.maximum(qc_pi, qc2_pi)
         max_qc_pi_targ = tf.maximum(qc_pi_targ, qc2_pi_targ)
-        qc_backup = tf.stop_gradient(c_ph + cost_gamma * (1 - d_ph) * max_qc_pi_targ)
+        qc_backup = tf.stop_gradient(tf.clip_by_value(c_ph + cost_gamma * (1 - d_ph) * qc_pi_targ, 0, 100))
     else:
-        qc_backup = tf.stop_gradient(c_ph + cost_gamma * (1 - d_ph) * qc_pi_targ)
+        qc_backup = tf.stop_gradient(tf.clip_by_value(c_ph + cost_gamma * (1 - d_ph) * qc_pi_targ, 0, 100))
 
     # Targets for Q and V regression
     q_backup = tf.stop_gradient(r_ph + gamma*(1-d_ph)*(min_q_pi_targ - alpha * logp_pi2))
