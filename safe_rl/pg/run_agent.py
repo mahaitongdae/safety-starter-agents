@@ -61,6 +61,10 @@ def run_polopt_agent(env_fn,
     tf.set_random_seed(seed)
     np.random.seed(seed)
 
+    # Create summary writer
+    logs_dir = logger_kwargs.get('output_dir') + '/logs'
+    summary_writer = tf.summary.FileWriter(logs_dir, tf.get_default_graph())
+
     env = env_fn()
 
     agent.set_logger(logger)
@@ -85,6 +89,8 @@ def run_polopt_agent(env_fn,
     # Outputs from actor critic
     ac_outs = actor_critic(x_ph, a_ph, **ac_kwargs)
     pi, logp, logp_pi, pi_info, pi_info_phs, d_kl, ent, v, vc = ac_outs
+    tf.summary.histogram('Optimizers/VCVals', vc)
+    merged_summary = tf.summary.merge_all()
 
     # Organize placeholders for zipping with data from buffer on updates
     buf_phs = [x_ph, a_ph, adv_ph, cadv_ph, ret_ph, cret_ph, logp_old_ph]
@@ -298,6 +304,8 @@ def run_polopt_agent(env_fn,
             measures['Penalty'] = penalty
 
         pre_update_measures = sess.run(measures, feed_dict=inputs)
+        summary = sess.run(merged_summary, feed_dict)
+        summary_writer.add_summary(summary, global_step=(t) * num_procs())
         logger.store(**pre_update_measures)
 
         #=====================================================================#
