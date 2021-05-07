@@ -276,7 +276,7 @@ def run_polopt_agent(env_fn,
     #  Create function for running update (called at end of each epoch)       #
     #=========================================================================#
 
-    def update():
+    def update(t):
         cur_cost = logger.get_stats('EpCost')[0]
         c = cur_cost - cost_lim
         if c > 0 and agent.cares_about_cost:
@@ -305,7 +305,7 @@ def run_polopt_agent(env_fn,
 
         pre_update_measures = sess.run(measures, feed_dict=inputs)
         summary = sess.run(merged_summary, feed_dict)
-        summary_writer.add_summary(summary, global_step=(t) * num_procs())
+        summary_writer.add_summary(summary, global_step=t)
         logger.store(**pre_update_measures)
 
         #=====================================================================#
@@ -426,7 +426,7 @@ def run_polopt_agent(env_fn,
         #=====================================================================#
         #  Run RL update                                                      #
         #=====================================================================#
-        update()
+        update(epoch*steps_per_epoch)
 
         #=====================================================================#
         #  Cumulative cost calculations                                       #

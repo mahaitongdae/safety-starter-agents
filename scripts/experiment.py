@@ -26,12 +26,12 @@ def main(robot, task, algo, seed, exp_name, cpu):
         num_steps = 1e8
         steps_per_epoch = 60000
     else:
-        num_steps = 1e7
-        steps_per_epoch = 30000
+        num_steps = 3e6
+        steps_per_epoch = 8000
     epochs = int(num_steps / steps_per_epoch)
     save_freq = 50
     target_kl = 0.01
-    cost_lim = 25
+    cost_lim = 100
 
     # Fork for parallelizing
     mpi_fork(cpu)
@@ -63,11 +63,11 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--robot', type=str, default='Point')
-    parser.add_argument('--task', type=str, default='Goal1')
-    parser.add_argument('--algo', type=str, default='ppo')
+    parser.add_argument('--task', type=str, default='Button1')
+    parser.add_argument('--algo', type=str, default='ppo_lagrangian')
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--exp_name', type=str, default='for exp')
-    parser.add_argument('--cpu', type=int, default=1)
+    parser.add_argument('--cpu', type=int, default=8)
     args = parser.parse_args()
     exp_name = args.exp_name if not(args.exp_name=='') else None
     main(args.robot, args.task, args.algo, args.seed, exp_name, args.cpu)
