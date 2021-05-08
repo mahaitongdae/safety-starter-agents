@@ -272,7 +272,7 @@ def make_plots(all_logdirs, legend=None, xaxis=None, values=None, count=False,
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('logdir', default='/home/mahaitong/PycharmProjects/safety-starter-agents/data/_temp/dq', nargs='*')
+    parser.add_argument('--logdir', default=['/home/mahaitong/PycharmProjects/safety-starter-agents/data/2021-05-05_cpo_CarPush2/2021-05-05_01-52-37-cpo_CarPush2_s0'], nargs='*')
     parser.add_argument('--legend', '-l', nargs='*')
     parser.add_argument('--xaxis', '-x', default='TotalEnvInteracts')
     parser.add_argument('--value', '-y', default='AverageEpCost', nargs='*')

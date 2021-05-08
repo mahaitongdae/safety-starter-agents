@@ -26,8 +26,9 @@ def main(robot, task, algo, seed, exp_name, cpu, **kwargs):
         epochs = 100
         steps_per_epoch = 16000  # max episode length: 1000
     else:
-        epochs = 200
-        steps_per_epoch = 16000 # max episode length: 1000
+        num_steps = 3e6
+        steps_per_epoch = 8000  # max episode length: 1000
+    epochs = int(num_steps / steps_per_epoch)
     save_freq = 10
     cost_constraint = 10.0 # todo:3.0, add to version control
 
@@ -60,10 +61,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--robot', type=str, default='Point')
     parser.add_argument('--task', type=str, default='Button1')
-    parser.add_argument('--algo', type=str, default='fsac_per')
+    parser.add_argument('--algo', type=str, default='fsac')
     parser.add_argument('--seed', type=int, default=0, nargs='*')
     parser.add_argument('--exp_name', type=str, default='default')
-    parser.add_argument('--cpu', type=int, default=16)
+    parser.add_argument('--cpu', type=int, default=8)
     parser.add_argument('--motivation', type=str, default='increase qc cstr')
     args = parser.parse_args()
     exp_name = args.exp_name if not(args.exp_name=='') else None
