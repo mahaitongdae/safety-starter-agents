@@ -62,10 +62,10 @@ def main(robot, task, algo, seed, exp_name, cpu):
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--robot', type=str, default='Point')
+    parser.add_argument('--robot', type=str, default='Car')
     parser.add_argument('--task', type=str, default='Goal2')
-    parser.add_argument('--algo', type=str, default='cpo')
-    parser.add_argument('--seed', type=int, default=1)
+    parser.add_argument('--algo', type=str, default='ppo')
+    parser.add_argument('--seed', type=int, default=3)
     parser.add_argument('--exp_name', type=str, default='for exp')
     parser.add_argument('--cpu', type=int, default=8)
     args = parser.parse_args()
