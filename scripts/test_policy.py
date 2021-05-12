@@ -24,7 +24,7 @@ def run_policy(env, get_action, max_ep_len=None, num_episodes=100, render=True):
         a = np.clip(a, env.action_space.low, env.action_space.high)
         o, r, d, info = env.step(a)
         ep_ret += r
-        ep_cost += info.get('cost', 0)
+        ep_cost += 0.99 ** ep_len * info.get('x_velocity', 0)
         ep_len += 1
 
         if d or (ep_len == max_ep_len):
@@ -42,12 +42,12 @@ def run_policy(env, get_action, max_ep_len=None, num_episodes=100, render=True):
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('fpath', type=str)
+    parser.add_argument('--fpath', type=str, default='/home/mahaitong/PycharmProjects/safety-starter-agents/data/2021-05-11_trpo_lagrangian_HalfCheetah-v3/2021-05-11_16-01-43-trpo_lagrangian_HalfCheetah-v3_s3')
     parser.add_argument('--len', '-l', type=int, default=0)
     parser.add_argument('--episodes', '-n', type=int, default=100)
-    parser.add_argument('--norender', '-nr', action='store_true')
+    parser.add_argument('--norender', '-nr', action='store_true',default=False)
     parser.add_argument('--itr', '-i', type=int, default=-1)
-    parser.add_argument('--deterministic', '-d', action='store_true')
+    parser.add_argument('--deterministic', '-d', action='store_true', default=True)
     args = parser.parse_args()
     env, get_action, sess = load_policy(args.fpath,
                                         args.itr if args.itr >=0 else 'last',

@@ -140,7 +140,7 @@ class PPOAgent(Agent):
 
 class TrustRegionAgent(Agent):
 
-    def __init__(self, damping_coeff=0.1, 
+    def __init__(self, damping_coeff=0.01,
                        backtrack_coeff=0.8, 
                        backtrack_iters=10, 
                        **kwargs):
