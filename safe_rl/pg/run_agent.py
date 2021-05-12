@@ -39,7 +39,7 @@ def run_polopt_agent(env_fn,
                      # Cost constraints / penalties:
                      cost_lim=25,
                      penalty_init=1.,
-                     penalty_lr=5e-2,
+                     penalty_lr=1e-2,
                      # KL divergence:
                      target_kl=0.01, 
                      # Value learning:
