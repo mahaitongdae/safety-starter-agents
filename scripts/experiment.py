@@ -64,10 +64,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--robot', type=str, default='Car')
     parser.add_argument('--task', type=str, default='Goal2')
-    parser.add_argument('--algo', type=str, default='ppo')
+    parser.add_argument('--algo', type=str, default='trpo_lagrangian')
     parser.add_argument('--seed', type=int, default=3)
     parser.add_argument('--exp_name', type=str, default='for exp')
-    parser.add_argument('--cpu', type=int, default=8)
+    parser.add_argument('--cpu', type=int, default=4)
     args = parser.parse_args()
     exp_name = args.exp_name if not(args.exp_name=='') else None
     main(args.robot, args.task, args.algo, args.seed, exp_name, args.cpu)
