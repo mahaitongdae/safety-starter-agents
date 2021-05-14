@@ -390,7 +390,7 @@ def run_polopt_agent(env_fn,
             o2, r, d, info = env.step(a)
 
             # Include penalty on cost
-            c = info.get('x_velocity', 0)
+            c = np.abs(info.get('x_velocity', 0))
 
             # Track cumulative cost over training
             # velo.append(c)
