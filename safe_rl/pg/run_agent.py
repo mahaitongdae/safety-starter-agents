@@ -49,7 +49,8 @@ def run_polopt_agent(env_fn,
                      logger=None, 
                      logger_kwargs=dict(), 
                      save_freq=1,
-                     lr_decay=True
+                     lr_decay=True,
+                     end_learning_rate=1e-5
                      ):
 
 
@@ -222,7 +223,7 @@ def run_polopt_agent(env_fn,
         if lr_decay:
             local_step = tf.Variable(0.0, trainable=False)
             pi_lr = tf.train.polynomial_decay(learning_rate=agent.pi_lr, global_step=local_step,
-                                              decay_steps=epochs*agent.pi_iters, end_learning_rate=1e-6)
+                                              decay_steps=epochs*agent.pi_iters, end_learning_rate=end_learning_rate)
         else:
             pi_lr = agent.pi_lr
             # Optimizer for first-order policy optimization

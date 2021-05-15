@@ -36,7 +36,7 @@ def main(env_id, algo, seed, exp_name, cpu):
     elif env_id == 'Ant-v3':
         num_steps = 3e6
         steps_per_epoch = 2000
-        cost_lim = 100
+        cost_lim = 140
     elif env_id == 'Walker2d-v3':
         num_steps = 3e6
         steps_per_epoch = 2000
@@ -76,8 +76,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     # parser.add_argument('--robot', type=str, default='Car')
     # parser.add_argument('--task', type=str, default='Goal2')
-    parser.add_argument('--env_id', type=str, default='HalfCheetah-v3')
-    parser.add_argument('--algo', type=str, default='ppo_lagrangian')
+    parser.add_argument('--env_id', type=str, default='Ant-v3')
+    parser.add_argument('--algo', type=str, default='cpo')
     parser.add_argument('--seed', type=int, default=2)
     parser.add_argument('--exp_name', type=str, default='for exp')
     parser.add_argument('--cpu', type=int, default=1)
